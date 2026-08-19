@@ -7,7 +7,7 @@ Aplicación local de análisis morfométrico de radiografías de columna en esco
 ## Estado de desarrollo
 
 - [x] **Fase 1 — Motor de geometría y mediciones.** `src/core/geometry` y `src/core/measurements`, sin interfaz.
-- [ ] Fase 2 — Visor, anotación y recálculo en vivo.
+- [x] **Fase 2 — Visor, anotación y recálculo en vivo.** Carga DICOM/PNG/JPEG/TIFF, anonimización, calibración (DICOM y regla manual), anotación manual de vértebras/pelvis/costillas con recálculo en vivo, panel de mediciones, atajos de teclado, persistencia local (IndexedDB) e import/export JSON. Sin pipeline automático todavía: los landmarks se colocan a mano.
 - [ ] Fase 3 — Pipeline automático, vista PA de pie.
 - [ ] Fase 4 — Clasificadores.
 - [ ] Fase 5 — Vista lateral y parámetros pélvicos automáticos.
@@ -26,9 +26,9 @@ src/
     config/
       conventions.ts  # decisiones de docs/OPEN_QUESTIONS.md, configurables
   pipeline/           # detección automática (fase 3)
-  imaging/            # carga DICOM (fase 2)
-  ui/                 # visor y paneles (fase 2)
-  storage/            # persistencia local (fase 2)
+  imaging/            # carga DICOM/PNG/JPEG/TIFF, anonimización, window/level
+  ui/                 # visor (Konva), paneles, store (Zustand)
+  storage/            # persistencia local (Dexie/IndexedDB), import/export JSON
 training/             # entrenamiento de modelos, fuera del bundle
 docs/
   OPEN_QUESTIONS.md
@@ -45,4 +45,6 @@ docs/
 npm install
 npm run typecheck
 npm test
+npm run dev      # servidor de desarrollo
+npm run build    # build de producción
 ```

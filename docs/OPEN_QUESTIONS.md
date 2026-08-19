@@ -176,6 +176,11 @@ SPEC.md §7.8 exige mapear el desplazamiento relativo `d/w` a grados "por la tab
 - **Por defecto:** perpendicular al **platillo inferior** de la vértebra apical; punto medio de la cabeza costal y punto medio del cuello costal, según la descripción original.
 - Sensibilidad alta a la colocación: exigir zoom mínimo del 400% para colocar estos puntos y advertirlo.
 
+### #42 Atajo `E` ("ciclar vértebra terminal"): qué terminal cicla y en qué sentido
+SPEC.md §10.2 dice sólo "`E` ciclar vértebra terminal", sin especificar si cicla la terminal craneal o la caudal, en qué dirección, ni cómo se combinan ambas si el usuario quiere corregir las dos. No es una ambigüedad clínica (no cambia ningún cálculo ya hecho, sólo qué vértebras alimentan `measureCobb`), pero condiciona la interacción del atajo.
+- **Por defecto (implementado en `src/ui/store.ts`, `cycleCobbTerminal`):** `E` avanza la terminal **craneal** a la siguiente vértebra anotada (en orden craneal→caudal, con vuelta circular); `Shift+E` avanza la terminal **caudal**. Cada pulsación fija el resultado en `forcedCobbTerminals`, exactamente el mismo mecanismo que reutiliza las terminales del estudio índice en el seguimiento seriado (#2).
+- **Alternativa:** un único atajo que cicla ambas terminales a la vez sobre el conjunto de pares válidos que producen cambio de signo (más fiel a "un candidato completo cada vez", pero exige exponer la lista completa de pares candidatos desde `core/measurements/cobb.ts`, no sólo el mejor).
+
 ---
 
 ## F. MADUREZ ESQUELÉTICA
