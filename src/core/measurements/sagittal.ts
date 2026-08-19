@@ -6,6 +6,7 @@ import { angleBetweenLines, signedDistanceToVerticalLine, HORIZONTAL } from '../
 import { convertPxToMm, type Calibration } from '../calibration/calibration';
 import { DEFAULT_CONVENTIONS, type Conventions } from '../config/conventions';
 import type { MeasurementResult, PelvicAnnotation, SpinalLevel, TraceStep, VertebraAnnotation } from '../models/types';
+import { compareSpinalLevels, isSpinalLevelBetween } from '../models/spinalLevelOrder';
 import { endplateLine, vertebraCentroid } from './vertebraGeometry';
 import { femoralAxisMidpoint, s1EndplateMidpoint } from './pelvicGeometry';
 
@@ -34,6 +35,103 @@ export function measureThoracicKyphosis(vertebrae: VertebraAnnotation[]): Measur
   const angle = angleBetweenLines(endplateLine(t5, 'superior'), endplateLine(t12, 'inferior'));
   const trace: TraceStep[] = [{ step: 'cifosis torácica T5–T12', detail: 'T5 platillo superior → T12 platillo inferior.', value: angle }];
   return { value: angle, unit: 'deg', status: 'ok', trace };
+}
+
+/**
+ * Cifosis genérica entre dos niveles cualesquiera (platillo superior del
+ * craneal → platillo inferior del caudal), como `measureThoracicKyphosis`
+ * pero parametrizable. Base de los criterios de estructuralidad de Lenke
+ * (`docs/OPEN_QUESTIONS.md` #13: cifosis T2–T5 para PT, T10–L2 para MT/TL_L,
+ * nunca reutilizar una cifosis calculada para un propósito distinto del que
+ * le corresponde) y de la cifosis máxima del C-EOS (#23).
+ */
+export function measureKyphosisSegment(
+  vertebrae: VertebraAnnotation[],
+  cranialLevel: SpinalLevel,
+  caudalLevel: SpinalLevel,
+): MeasurementResult {
+  const cranial = findVertebra(vertebrae, cranialLevel);
+  const caudal = findVertebra(vertebrae, caudalLevel);
+  if (!cranial) return missing(cranialLevel);
+  if (!caudal) return missing(caudalLevel);
+
+  const angle = angleBetweenLines(endplateLine(cranial, 'superior'), endplateLine(caudal, 'inferior'));
+  const trace: TraceStep[] = [
+    { step: `cifosis ${cranialLevel}–${caudalLevel}`, detail: `${cranialLevel} platillo superior → ${caudalLevel} platillo inferior.`, value: angle },
+  ];
+  return { value: angle, unit: 'deg', status: 'ok', trace };
+}
+
+export interface MaxKyphosisResult extends MeasurementResult {
+  cranialLevel: SpinalLevel | null;
+  caudalLevel: SpinalLevel | null;
+}
+
+/**
+ * `docs/OPEN_QUESTIONS.md` #23 (C-EOS, "cifosis máxima"): "calcular la
+ * cifosis máxima por barrido de todos los pares de platillos entre T1 y L2,
+ * tomando el valor máximo, y registrar los niveles usados." Sólo considera
+ * pares craneal→caudal en el orden anatómico correcto, restringidos al
+ * rango `[fromLevel, toLevel]` y a las vértebras realmente presentes.
+ */
+export function measureMaxKyphosis(
+  vertebrae: VertebraAnnotation[],
+  fromLevel: SpinalLevel = 'T1',
+  toLevel: SpinalLevel = 'L2',
+): MaxKyphosisResult {
+  const inRange = vertebrae.filter((v) => isSpinalLevelBetween(v.level, fromLevel, toLevel));
+  if (inRange.length < 2) {
+    return {
+      value: null,
+      unit: 'deg',
+      status: 'unavailable',
+      reason: `Menos de dos vértebras anotadas entre ${fromLevel} y ${toLevel}: no se puede barrer la cifosis máxima.`,
+      trace: [],
+      cranialLevel: null,
+      caudalLevel: null,
+    };
+  }
+
+  let best: { cranial: VertebraAnnotation; caudal: VertebraAnnotation; angle: number } | null = null;
+  for (const cranial of inRange) {
+    for (const caudal of inRange) {
+      if (compareSpinalLevels(cranial.level, caudal.level) >= 0) continue;
+      const angle = angleBetweenLines(endplateLine(cranial, 'superior'), endplateLine(caudal, 'inferior'));
+      if (!best || angle > best.angle) best = { cranial, caudal, angle };
+    }
+  }
+
+  // No debería ocurrir tras el chequeo `inRange.length < 2`, pero se
+  // maneja explícitamente en vez de asumirlo (nunca lanzar en `core/`).
+  if (!best) {
+    return {
+      value: null,
+      unit: 'deg',
+      status: 'unavailable',
+      reason: `Ningún par craneal→caudal válido entre ${fromLevel} y ${toLevel}.`,
+      trace: [],
+      cranialLevel: null,
+      caudalLevel: null,
+    };
+  }
+
+  const trace: TraceStep[] = [
+    {
+      step: 'cifosis máxima (barrido)',
+      detail:
+        `Máximo entre todos los pares de platillos ${fromLevel}–${toLevel}: ` +
+        `${best.cranial.level}–${best.caudal.level} (docs/OPEN_QUESTIONS.md #23).`,
+      value: best.angle,
+    },
+  ];
+  return {
+    value: best.angle,
+    unit: 'deg',
+    status: 'ok',
+    trace,
+    cranialLevel: best.cranial.level,
+    caudalLevel: best.caudal.level,
+  };
 }
 
 /** SPEC.md §7.5 / `docs/OPEN_QUESTIONS.md` #15: por defecto L1 platillo

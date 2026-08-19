@@ -242,6 +242,88 @@ export function determineConvexity(
   return apexPt.x - referenceX >= 0 ? 'right' : 'left';
 }
 
+export interface CobbCurveCandidate {
+  cranialVertebra: VertebraAnnotation;
+  caudalVertebra: VertebraAnnotation;
+  angle: number;
+  apexVertebra: VertebraAnnotation | null;
+  convexity: 'left' | 'right' | null;
+  ambiguous: boolean;
+}
+
+export interface DetectAllCobbCurvesResult {
+  curves: CobbCurveCandidate[];
+  trace: TraceStep[];
+}
+
+/**
+ * SPEC.md §7.3: "regiones de curva (base de Lenke)". `measureCobb` sólo
+ * expone la curva mayor (la de mayor Cobb); esta función expone **todas**
+ * las curvas candidatas — una por cada par de tramos de signo adyacente,
+ * exactamente el mismo criterio de `selectCobbTerminalVertebrae` aplicado a
+ * cada inflexión en vez de sólo a la de mayor ángulo. Con R tramos de signo
+ * hay R-1 curvas candidatas, compartiendo vértebra en cada inflexión
+ * (`docs/OPEN_QUESTIONS.md` #3). Es la base geométrica de la que
+ * `core/classification` deriva las regiones PT/MT/TL_L (§7.3) — la
+ * clasificación por región vive en `core/classification`, no aquí: esta
+ * función sólo mide, no interpreta.
+ */
+export function detectAllCobbCurves(
+  vertebrae: VertebraAnnotation[],
+  conventions: Conventions = DEFAULT_CONVENTIONS,
+): DetectAllCobbCurvesResult {
+  const trace: TraceStep[] = [];
+  const reliable = vertebrae.filter((v) => v.confidence === undefined || v.confidence >= RELIABLE_CONFIDENCE_THRESHOLD);
+  const excluded = vertebrae.length - reliable.length;
+  if (excluded > 0) {
+    trace.push({
+      step: 'exclusión por confianza',
+      detail: `${excluded} vértebra(s) con confianza <0.7 excluida(s) de la detección de curvas.`,
+    });
+  }
+
+  if (reliable.length < 2) {
+    trace.push({ step: 'curvas detectadas', detail: 'Menos de dos vértebras fiables: ninguna curva detectable.' });
+    return { curves: [], trace };
+  }
+
+  const inclinations = reliable.map(vertebraInclinationDeg);
+  const runs = groupBySignRuns(inclinations);
+  if (runs.length < 2) {
+    trace.push({ step: 'curvas detectadas', detail: 'Sin cambio de signo de inclinación: ninguna curva delimitable.' });
+    return { curves: [], trace };
+  }
+
+  const curves: CobbCurveCandidate[] = [];
+  for (let k = 0; k < runs.length - 1; k++) {
+    const cranialRun = runs[k]!;
+    const caudalRun = runs[k + 1]!;
+    const cranialPick = pickExtremeInRun(cranialRun, inclinations, 'cranial', conventions);
+    const caudalPick = pickExtremeInRun(caudalRun, inclinations, 'caudal', conventions);
+    const cranial = reliable[cranialPick.index]!;
+    const caudal = reliable[caudalPick.index]!;
+    const angle = angleBetweenLines(endplateLine(cranial, 'superior'), endplateLine(caudal, 'inferior'));
+    const apex = determineApexVertebra(reliable, cranial, caudal);
+    const convexity = apex ? determineConvexity(cranial, caudal, apex) : null;
+
+    curves.push({
+      cranialVertebra: cranial,
+      caudalVertebra: caudal,
+      angle,
+      apexVertebra: apex,
+      convexity,
+      ambiguous: cranialPick.ambiguous || caudalPick.ambiguous,
+    });
+    trace.push({
+      step: `curva ${k + 1}`,
+      detail: `${cranial.level}–${caudal.level}, ápex ${apex?.level ?? 'no determinado'}, convexidad ${convexity ?? 'n/d'}.`,
+      value: angle,
+    });
+  }
+
+  return { curves, trace };
+}
+
 export interface MeasureCobbOptions {
   conventions?: Conventions;
   /** SPEC.md §7.2 "Seguimiento": en estudios sucesivos, reutilizar siempre

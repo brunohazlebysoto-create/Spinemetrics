@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  detectAllCobbCurves,
   determineConvexity,
   evaluateCobbProgression,
   isScoliosis,
@@ -194,6 +195,61 @@ describe('measureCobb — casos sin curva detectable', () => {
     ];
     const result = measureCobb(vertebrae);
     expect(result.status).toBe('unavailable');
+  });
+});
+
+describe('detectAllCobbCurves — arquitectura de curvas múltiples (SPEC.md §7.3)', () => {
+  it('devuelve exactamente una curva cuando sólo hay una inflexión (curva simple)', () => {
+    const rightCurve: VertebraAnnotation[] = [
+      makeVertebra({ level: 'T5', centerY: 0, superiorTiltDeg: 5, xCenter: 200 }),
+      makeVertebra({ level: 'T6', centerY: 30, superiorTiltDeg: 12, xCenter: 205 }),
+      makeVertebra({ level: 'T7', centerY: 60, superiorTiltDeg: 18, xCenter: 210 }),
+      makeVertebra({ level: 'T8', centerY: 90, superiorTiltDeg: 2, xCenter: 220 }),
+      makeVertebra({ level: 'T9', centerY: 120, superiorTiltDeg: -15, xCenter: 208 }),
+      makeVertebra({ level: 'T10', centerY: 150, superiorTiltDeg: -22, xCenter: 200 }),
+      makeVertebra({ level: 'T11', centerY: 180, superiorTiltDeg: -8, xCenter: 195 }),
+    ];
+    const { curves } = detectAllCobbCurves(rightCurve);
+    expect(curves).toHaveLength(1);
+    expect(curves[0]!.cranialVertebra.level).toBe('T7');
+    expect(curves[0]!.caudalVertebra.level).toBe('T10');
+    // Debe coincidir exactamente con la curva mayor que expone measureCobb.
+    const major = measureCobb(rightCurve);
+    expect(curves[0]!.angle).toBeCloseTo(major.value!, 6);
+  });
+
+  it('devuelve dos curvas para una doble curva, compartiendo la vértebra de inflexión (#3)', () => {
+    // Tramo 1 (+): T2..T3, pico en T3. Tramo 2 (−): T4..T6, pico en T5.
+    // Tramo 3 (+): T7..T9, pico en T8. Dos inflexiones → dos curvas
+    // candidatas, T3–T5 y T5–T8, compartiendo T5.
+    const doubleCurve: VertebraAnnotation[] = [
+      makeVertebra({ level: 'T2', centerY: 0, superiorTiltDeg: 5 }),
+      makeVertebra({ level: 'T3', centerY: 30, superiorTiltDeg: 15 }),
+      makeVertebra({ level: 'T4', centerY: 60, superiorTiltDeg: -3 }),
+      makeVertebra({ level: 'T5', centerY: 90, superiorTiltDeg: -18 }),
+      makeVertebra({ level: 'T6', centerY: 120, superiorTiltDeg: -10 }),
+      makeVertebra({ level: 'T7', centerY: 150, superiorTiltDeg: 2 }),
+      makeVertebra({ level: 'T8', centerY: 180, superiorTiltDeg: 25 }),
+      makeVertebra({ level: 'T9', centerY: 210, superiorTiltDeg: 8, inferiorTiltDeg: 8 }),
+    ];
+    const { curves } = detectAllCobbCurves(doubleCurve);
+    expect(curves).toHaveLength(2);
+    expect(curves[0]!.cranialVertebra.level).toBe('T3');
+    expect(curves[0]!.caudalVertebra.level).toBe('T5');
+    expect(curves[1]!.cranialVertebra.level).toBe('T5');
+    expect(curves[1]!.caudalVertebra.level).toBe('T8');
+    // La vértebra de inflexión (T5) es caudal de la primera curva y craneal
+    // de la segunda: es la misma anotación, no una copia (#3).
+    expect(curves[0]!.caudalVertebra).toBe(curves[1]!.cranialVertebra);
+  });
+
+  it('devuelve un array vacío cuando no hay curva detectable', () => {
+    const noCurve: VertebraAnnotation[] = [
+      makeVertebra({ level: 'T5', centerY: 0, superiorTiltDeg: 5 }),
+      makeVertebra({ level: 'T6', centerY: 30, superiorTiltDeg: 8 }),
+    ];
+    expect(detectAllCobbCurves(noCurve).curves).toHaveLength(0);
+    expect(detectAllCobbCurves([makeVertebra({ level: 'T5', centerY: 0, superiorTiltDeg: 5 })]).curves).toHaveLength(0);
   });
 });
 

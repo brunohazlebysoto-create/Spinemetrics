@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { measureLumbarLordosis, measureSVA, measureT1Slope, measureTPA, measureThoracicKyphosis } from './sagittal';
+import {
+  measureKyphosisSegment,
+  measureLumbarLordosis,
+  measureMaxKyphosis,
+  measureSVA,
+  measureT1Slope,
+  measureTPA,
+  measureThoracicKyphosis,
+} from './sagittal';
 import { calibrationFromRuler } from '../calibration/calibration';
 import { DEFAULT_CONVENTIONS } from '../config/conventions';
 import type { PelvicAnnotation, Pt, VertebraAnnotation } from '../models/types';
@@ -155,5 +163,55 @@ describe('measureTPA', () => {
   it('unavailable sin T1', () => {
     const pelvis = makePelvis(200, 500, 400);
     expect(measureTPA([], pelvis).status).toBe('unavailable');
+  });
+});
+
+describe('measureKyphosisSegment — genérica entre dos niveles cualesquiera', () => {
+  it('calcula el ángulo entre los niveles pedidos, no un par fijo', () => {
+    const vertebrae = [makeVertebra('T2', 0, 3), makeVertebra('T5', 100, -17)];
+    const result = measureKyphosisSegment(vertebrae, 'T2', 'T5');
+    expect(result.status).toBe('ok');
+    expect(result.value!).toBeCloseTo(20, 6);
+  });
+
+  it('unavailable si falta el nivel craneal o caudal', () => {
+    expect(measureKyphosisSegment([makeVertebra('T5', 0, -17)], 'T2', 'T5').status).toBe('unavailable');
+    expect(measureKyphosisSegment([makeVertebra('T2', 0, 3)], 'T2', 'T5').status).toBe('unavailable');
+  });
+});
+
+describe('measureMaxKyphosis — barrido T1–L2 (docs/OPEN_QUESTIONS.md #23)', () => {
+  const vertebrae = [
+    makeVertebra('T1', 0, 0),
+    makeVertebra('T5', 100, 10),
+    makeVertebra('T12', 300, -20),
+    makeVertebra('L2', 380, -25),
+  ];
+
+  it('encuentra el par de mayor ángulo entre todos los pares craneal→caudal, no sólo T5–T12', () => {
+    const result = measureMaxKyphosis(vertebrae);
+    expect(result.status).toBe('ok');
+    // T5(sup 10°)–L2(inf −25°) da 35°, mayor que T5–T12 (30°) o T1–L2 (25°).
+    expect(result.value!).toBeCloseTo(35, 6);
+    expect(result.cranialLevel).toBe('T5');
+    expect(result.caudalLevel).toBe('L2');
+  });
+
+  it('registra los niveles usados en la traza', () => {
+    const result = measureMaxKyphosis(vertebrae);
+    expect(result.trace.some((t) => t.detail.includes('T5–L2'))).toBe(true);
+  });
+
+  it('respeta un rango [fromLevel, toLevel] explícito, excluyendo vértebras fuera de él', () => {
+    const result = measureMaxKyphosis(vertebrae, 'T1', 'T12');
+    expect(result.cranialLevel).toBe('T5');
+    expect(result.caudalLevel).toBe('T12');
+    expect(result.value!).toBeCloseTo(30, 6);
+  });
+
+  it('unavailable con menos de dos vértebras en el rango', () => {
+    const result = measureMaxKyphosis([makeVertebra('T5', 0, 10)]);
+    expect(result.status).toBe('unavailable');
+    expect(result.cranialLevel).toBeNull();
   });
 });

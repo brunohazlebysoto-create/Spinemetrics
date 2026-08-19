@@ -56,6 +56,16 @@ Cuando el ápex es un disco y no un cuerpo, no hay "pedículos de la vértebra a
 - **Por defecto:** usar la **vértebra caudal al disco apical** como referencia para el modificador lumbar, y registrarlo en la traza.
 - **Alternativa:** promediar la geometría de las dos vértebras adyacentes.
 
+### #43 ★★ Modificador lumbar de Lenke, definición de C: discrepancia entre la redacción de SPEC.md y la literatura
+SPEC.md §9.1 Paso 5 dice literalmente: "**C** completamente medial al margen lateral (sin contacto)." Tomada al pie de la letra, "medial al margen lateral" describe una posición **dentro** del cuerpo vertebral, lo cual contradice la definición clínica estándar de Lenke: **C** es la CSVL cayendo **completamente lateral** al cuerpo vertebral apical (fuera de él, sin ningún contacto) — el caso de mayor desviación de curva, no uno intermedio.
+- **Por defecto (implementado en `core/classification/lumbarModifier.ts`):** definición clínica estándar — **A** entre los pedículos; **B** toca el cuerpo entre el borde medial del pedículo y el margen lateral; **C** completamente fuera del cuerpo vertebral (lateral a él), sin contacto. Marcado en el código con `// AMBIGUO: ver OPEN_QUESTIONS #43`.
+- **No resuelto en silencio:** se implementa la definición de la literatura citada por el propio SPEC.md (Lenke 2001, ref. 11), no una interpretación literal de la frase ambigua. Debe confirmarse contra el artículo original antes de cualquier uso académico.
+
+### #44 Modificador lumbar de Lenke: el modelo de datos no representa un ápex en un disco intervertebral
+`docs/OPEN_QUESTIONS.md` #9 (arriba) asume que el ápex de la curva lumbar puede caer en un disco intervertebral, y define una política de resolución ("usar la vértebra caudal al disco apical"). El modelo de datos de la aplicación (`VertebraAnnotation`) sólo anota vértebras — no hay ningún landmark de disco intervertebral — y `determineApexVertebra` (`core/measurements/cobb.ts`) siempre selecciona una vértebra concreta (la más horizontal entre las terminales), nunca una posición intermedia.
+- **Por defecto:** la política de #9 (`apexAtDiscPolicy`) queda declarada en `core/config/conventions.ts` pero es un no-op estructural en la implementación actual de `core/classification/lumbarModifier.ts`: no hay ningún caso en que el ápex resuelto sea "un disco" que necesite resolverse a su vértebra caudal.
+- **Pendiente:** si en el futuro se añade la capacidad de anotar el ápex como un disco intervertebral (más fiel a la literatura), esta función deberá revisarse para aplicar #9 de verdad.
+
 ### #10 Tipo 6: ¿"TL/L mayor que MT" o "mayor por ≥5°"?
 - **Por defecto:** exigir **TL/L ≥ MT + 5°** (criterio más citado). Si TL/L es mayor pero por menos de 5°, clasificar como **tipo 3** y marcar `type3vs6Borderline: true`.
 
@@ -137,6 +147,11 @@ No se especifican niveles fijos; es la cifosis máxima de cualquier segmento.
 ### #24 C-EOS: modificador de progresión, `≥20` o `>20`
 - **Por defecto:** `P0` <10°/año, `P1` 10–19.9°/año, `P2` ≥20°/año.
 - Requiere dos estudios con fecha; anualizar linealmente y **exigir un intervalo mínimo de 6 meses** entre estudios; por debajo de eso, no calcular el modificador (el ruido de medición domina).
+
+### #45 Neuromuscular (Lonstein-Akbarnia): umbral numérico de "oblicuidad pélvica significativa"
+SPEC.md §9.7 dice "Grupo II tronco descompensado con oblicuidad pélvica" y "la oblicuidad pélvica significativa es indicación clave de extender la fusión a la pelvis", pero no define en grados qué cuenta como "significativa" — a diferencia de otros umbrales de la especificación, aquí no hay ningún número.
+- **Por defecto (implementado en `core/classification/neuromuscular.ts`):** no se fabrica un corte numérico no publicado. La "oblicuidad pélvica significativa" y el "tronco compensado/descompensado" son entradas explícitas del clínico (booleanas), no derivadas automáticamente del ángulo de oblicuidad pélvica de `measurePelvicObliquity`.
+- **Pendiente:** si se localiza un umbral numérico en la fuente primaria de Lonstein-Akbarnia, sustituir la entrada manual por un cálculo automático a partir de `measurePelvicObliquity`.
 
 ### #25 King-Moe tipo II: "más rígida por ≥3°"
 El criterio original mezcla magnitud y rigidez de forma difícil de operacionalizar.
@@ -243,5 +258,6 @@ Estos puntos se implementaron a partir de fuentes secundarias y **deben confirma
 5. Definición operacional de la "cifosis máxima" en el C-EOS.
 6. Umbrales pediátricos normativos de incidencia pélvica por edad.
 7. Valores numéricos exactos de la tabla ratio (d/w) → grados del torsiómetro de Perdriolle (ver #41): la implementación actual usa una tabla aproximada de anclaje, no los valores impresos en el instrumento físico original.
+8. Definición de C en el modificador lumbar de Lenke (ver #43): se implementó la definición estándar de la literatura en vez de la redacción literal de SPEC.md §9.1, que parece contener un error de transcripción.
 
 **Referencia canónica recomendada para resolver la mayoría de las definiciones de landmarks:** *Spinal Deformity Study Group Radiographic Measurement Manual* (O'Brien, Kuklo, Blanke, Lenke), de acceso abierto en srs.org. Cuando este manual y una fuente secundaria discrepen, **gana el manual**.
