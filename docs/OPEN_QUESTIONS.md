@@ -163,6 +163,12 @@ No hay un umbral numérico publicado.
 El torsiómetro original da valores discretos.
 - **Por defecto:** interpolación lineal entre los valores tabulados, redondeando el resultado a 5°, porque una precisión mayor sería falsa (el error individual del método alcanza ~6°).
 
+### #41 ★★ Perdriolle: valores numéricos de la tabla ratio (d/w) → grados
+SPEC.md §7.8 exige mapear el desplazamiento relativo `d/w` a grados "por la tabla de Perdriolle", pero ni SPEC.md ni la bibliografía citada en `docs/REFERENCES.md` reproducen los valores numéricos exactos del torsiómetro original (Perdriolle & Vidal, 1985) — es una plantilla física, no una fórmula publicada en el JBJS/Spine. **No implementar un valor de precisión clínica sin verificar la fuente primaria.**
+- **Por defecto (implementado en `core/measurements/rotation.ts`, `DEFAULT_PERDRIOLLE_TABLE`):** tabla de anclaje aproximada, marcada en el código con `// AMBIGUO: ver OPEN_QUESTIONS #41`, con puntos en incrementos de 5° entre 0 y 40° y de 10° entre 40° y 60° (0.00→0°, 0.05→5°, …, 0.40→40°, 0.45→50°, 0.50→60°), interpolada linealmente y redondeada a 5° por `docs/OPEN_QUESTIONS.md` #29. La tabla es un parámetro configurable de la función, no una constante fija: cualquier centro puede sustituirla por la tabla impresa en su propio torsiómetro.
+- **Obligatorio:** todo resultado de `measurePerdriolleRotation` lleva la advertencia `perdriolleTableUnverified` y no debe usarse con fines de publicación académica hasta confirmar los valores contra el torsiómetro físico o la fuente primaria (ver también sección I, punto añadido más abajo).
+- **Alternativa:** introducir manualmente el valor leído directamente del torsiómetro físico (bypass de la tabla), registrando `source: 'perdriolleManual'`.
+
 ### #30 Nash-Moe como variable numérica
 - **Decisión firme, no configurable:** Nash-Moe se registra como grado ordinal (0–IV) y **nunca se convierte a grados ni entra en ningún cálculo**. Su error interobservador (hasta ~9°) lo hace inservible para seguimiento cuantitativo.
 
@@ -231,5 +237,6 @@ Estos puntos se implementaron a partir de fuentes secundarias y **deben confirma
 4. Rangos exactos de las categorías de curva y cifosis del C-EOS (ver la discontinuidad del #22).
 5. Definición operacional de la "cifosis máxima" en el C-EOS.
 6. Umbrales pediátricos normativos de incidencia pélvica por edad.
+7. Valores numéricos exactos de la tabla ratio (d/w) → grados del torsiómetro de Perdriolle (ver #41): la implementación actual usa una tabla aproximada de anclaje, no los valores impresos en el instrumento físico original.
 
 **Referencia canónica recomendada para resolver la mayoría de las definiciones de landmarks:** *Spinal Deformity Study Group Radiographic Measurement Manual* (O'Brien, Kuklo, Blanke, Lenke), de acceso abierto en srs.org. Cuando este manual y una fuente secundaria discrepen, **gana el manual**.
