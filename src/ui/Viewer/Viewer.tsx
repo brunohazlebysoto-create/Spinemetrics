@@ -156,7 +156,7 @@ export function Viewer(): JSX.Element {
             <ImageLayer image={image} windowCenter={windowCenter} windowWidth={windowWidth} invertGrayscale={invertGrayscale} />
           </Layer>
           <Layer>
-            <DerivedLinesLayer imageHeight={image.height} zoom={zoom} />
+            <DerivedLinesLayer imageWidth={image.width} imageHeight={image.height} zoom={zoom} />
           </Layer>
           <Layer>
             <LandmarksLayer zoom={zoom} />

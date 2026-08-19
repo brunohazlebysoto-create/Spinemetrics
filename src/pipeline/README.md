@@ -53,13 +53,22 @@ se calculan.
    mejora" de SPEC.md §12 igual que si hubieran sido manuales desde el
    principio.
 
+## Web Worker
+
+`runAutomaticPipeline` corre dentro de un Web Worker real (`worker.ts` +
+`workerClient.ts`), tal como exige SPEC.md §8. `worker.ts` es un envoltorio
+delgado — nunca añadir lógica ahí, sólo llama a `runPipeline.ts` (que sigue
+viviendo fuera del worker y se sigue probando en Node normalmente).
+`workerClient.ts` expone `runPipelineInWorker` con la misma firma que
+`runAutomaticPipeline` pero devolviendo una `Promise`; si `Worker` no existe
+en el entorno (Node/Vitest) cae de vuelta a llamar la función directamente
+en el mismo hilo, así que el comportamiento lógico es idéntico en pruebas y
+en el navegador — sólo cambia si bloquea el hilo principal o no. Verificado
+en un build de producción real (`npm run build && npm run preview`) con
+Playwright observando que el navegador efectivamente crea el Worker.
+
 ## Pendiente explícito (no ocultado)
 
-- **No corre en un Web Worker todavía** (SPEC.md §8: "corre en un Web
-  Worker"). El heurístico actual es mucho más barato que la inferencia de
-  un modelo ONNX real, así que no bloquea la UI de forma perceptible en las
-  pruebas hechas; moverlo a un worker es trabajo de "pulido" pendiente, no
-  una limitación de corrección.
 - **Vista lateral (Etapa 6)** no implementada.
 - **Reemplazo por un modelo real**: en cuanto exista un checkpoint
   entrenado (`training/`) y su exportación a ONNX, la Etapa 3 debería

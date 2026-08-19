@@ -2,16 +2,19 @@
  * Dibuja las líneas derivadas (`computeDerivedLines`) sobre el visor.
  * SPEC.md §3, capa "líneas derivadas".
  */
-import { Line } from 'react-konva';
+import { Circle, Line, Text } from 'react-konva';
 import { useAppStore } from '../store';
 import { computeDerivedLines } from './derivedLines';
 
 interface DerivedLinesLayerProps {
+  imageWidth: number;
   imageHeight: number;
   zoom: number;
 }
 
-export function DerivedLinesLayer({ imageHeight, zoom }: DerivedLinesLayerProps): JSX.Element | null {
+const COBB_LABEL_COLOR = '#ffe066';
+
+export function DerivedLinesLayer({ imageWidth, imageHeight, zoom }: DerivedLinesLayerProps): JSX.Element | null {
   const radiograph = useAppStore((s) => s.radiograph);
   const measurementSet = useAppStore((s) => s.measurementSet);
   const layerVisible = useAppStore((s) => s.layerVisibility.derivedLines);
@@ -19,7 +22,7 @@ export function DerivedLinesLayer({ imageHeight, zoom }: DerivedLinesLayerProps)
 
   if (!radiograph || !layerVisible || !overlaysVisible) return null;
 
-  const lines = computeDerivedLines(radiograph, measurementSet, imageHeight);
+  const { lines, cobbLabel } = computeDerivedLines(radiograph, measurementSet, imageWidth, imageHeight);
   const strokeWidth = 2 / zoom;
 
   return (
@@ -34,6 +37,24 @@ export function DerivedLinesLayer({ imageHeight, zoom }: DerivedLinesLayerProps)
           listening={false}
         />
       ))}
+      {cobbLabel && (
+        <>
+          {/* Vértice de las dos líneas del Cobb extendidas, con el ángulo
+              impreso al lado — mismo estilo visual que las herramientas de
+              medición de referencia: confirmar el número justo donde se
+              está midiendo, no sólo en el panel lateral. */}
+          <Circle x={cobbLabel.point.x} y={cobbLabel.point.y} radius={3 / zoom} fill={COBB_LABEL_COLOR} listening={false} />
+          <Text
+            x={cobbLabel.point.x + 8 / zoom}
+            y={cobbLabel.point.y - 8 / zoom}
+            text={cobbLabel.text}
+            fontSize={16 / zoom}
+            fontStyle="bold"
+            fill={COBB_LABEL_COLOR}
+            listening={false}
+          />
+        </>
+      )}
     </>
   );
 }

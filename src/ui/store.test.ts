@@ -261,8 +261,13 @@ describe('detección automática (SPEC.md §8, sin modelo entrenado)', () => {
     return { kind: 'dicom', width, height, pixelData, defaultWindowCenter: 450, defaultWindowWidth: 700, monochrome1: false };
   }
 
-  it('loadImage dispara la detección automática sin que el usuario haga nada (SPEC.md §8)', () => {
+  it('loadImage dispara la detección automática sin que el usuario haga nada (SPEC.md §8)', async () => {
     useAppStore.getState().loadImage(makeSyntheticSpineDicom(), makeRadiograph());
+    // `runAutoDetection` corre en segundo plano (Web Worker en el navegador,
+    // ver `pipeline/workerClient.ts`); en Node cae de vuelta al mismo hilo,
+    // pero sigue siendo asíncrona — se espera explícitamente su propia
+    // Promise en vez de asumir que ya terminó al volver `loadImage`.
+    await useAppStore.getState().runAutoDetection();
     const state = useAppStore.getState();
     expect(state.autoDetection).not.toBeNull();
     expect(state.autoDetection!.detectedBands.length).toBeGreaterThan(0);
@@ -270,18 +275,20 @@ describe('detección automática (SPEC.md §8, sin modelo entrenado)', () => {
     expect(state.autoDetection!.measurementSet).toBeNull();
   });
 
-  it('una imagen sin ninguna estructura detectable no rompe la importación', () => {
+  it('una imagen sin ninguna estructura detectable no rompe la importación', async () => {
     const flat: DicomImageSource = { kind: 'dicom', width: 50, height: 50, pixelData: new Float32Array(2500).fill(100), defaultWindowCenter: 100, defaultWindowWidth: 50, monochrome1: false };
     useAppStore.getState().loadImage(flat, makeRadiograph());
+    await useAppStore.getState().runAutoDetection();
     expect(useAppStore.getState().radiograph).not.toBeNull();
   });
 
-  it('applyAutoDetectionAnchor confirma un nivel y carga las vértebras detectadas', () => {
+  it('applyAutoDetectionAnchor confirma un nivel y carga las vértebras detectadas', async () => {
     useAppStore.getState().loadImage(makeSyntheticSpineDicom(), makeRadiograph());
+    await useAppStore.getState().runAutoDetection();
     const bandCount = useAppStore.getState().autoDetection!.detectedBands.length;
     expect(bandCount).toBeGreaterThan(0);
 
-    useAppStore.getState().applyAutoDetectionAnchor(0, 'T4');
+    await useAppStore.getState().applyAutoDetectionAnchor(0, 'T4');
     const state = useAppStore.getState();
 
     expect(state.autoDetection!.levelLabeling.uncertain).toBe(false);
@@ -293,9 +300,10 @@ describe('detección automática (SPEC.md §8, sin modelo entrenado)', () => {
     expect(state.history).toHaveLength(1); // se puede deshacer con Ctrl+Z.
   });
 
-  it('las vértebras autodetectadas se pueden corregir a mano después (bucle de mejora, SPEC.md §12)', () => {
+  it('las vértebras autodetectadas se pueden corregir a mano después (bucle de mejora, SPEC.md §12)', async () => {
     useAppStore.getState().loadImage(makeSyntheticSpineDicom(), makeRadiograph());
-    useAppStore.getState().applyAutoDetectionAnchor(0, 'T4');
+    await useAppStore.getState().runAutoDetection();
+    await useAppStore.getState().applyAutoDetectionAnchor(0, 'T4');
     const level = useAppStore.getState().radiograph!.annotations.vertebrae[0]!.level;
 
     useAppStore.getState().updateLandmark({ kind: 'vertebraEndplate', level, which: 'superior', side: 'left' }, { x: 10, y: 10 });

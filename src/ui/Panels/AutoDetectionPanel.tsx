@@ -27,12 +27,24 @@ function qcColor(status: 'ok' | 'warning' | 'unavailable'): string {
 
 export function AutoDetectionPanel(): JSX.Element | null {
   const autoDetection = useAppStore((s) => s.autoDetection);
+  const autoDetectionLoading = useAppStore((s) => s.autoDetectionLoading);
   const applyAutoDetectionAnchor = useAppStore((s) => s.applyAutoDetectionAnchor);
   const radiograph = useAppStore((s) => s.radiograph);
   const [bandIndex, setBandIndex] = useState(0);
   const [level, setLevel] = useState<SpinalLevel>('T1');
 
-  if (!autoDetection) return null;
+  if (!autoDetection) {
+    // SPEC.md §8: corre en un Web Worker, así que hay un hueco real entre
+    // importar y tener resultado — mostrarlo en vez de un panel vacío.
+    if (autoDetectionLoading) {
+      return (
+        <div style={{ padding: 16, borderBottom: '1px solid #26282e', fontSize: 12, color: '#8a8f98' }}>
+          Detectando vértebras candidatas…
+        </div>
+      );
+    }
+    return null;
+  }
 
   const alreadyApplied = (radiograph?.annotations.vertebrae.length ?? 0) > 0 && !autoDetection.levelLabeling.uncertain;
 
@@ -89,8 +101,8 @@ export function AutoDetectionPanel(): JSX.Element | null {
                 ))}
               </select>
             </label>
-            <button type="button" onClick={() => applyAutoDetectionAnchor(bandIndex, level)}>
-              Confirmar y calcular
+            <button type="button" disabled={autoDetectionLoading} onClick={() => void applyAutoDetectionAnchor(bandIndex, level)}>
+              {autoDetectionLoading ? 'Calculando…' : 'Confirmar y calcular'}
             </button>
           </div>
         </div>

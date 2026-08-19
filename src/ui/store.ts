@@ -17,7 +17,8 @@ import type { MeasurementSet } from '../core/models/types';
 import { getLandmarkPoint, setLandmarkPoint, type LandmarkRef } from './landmarkRef';
 import { compareSpinalLevels } from './spinalLevelOrder';
 import type { ImageSource } from '../imaging/types';
-import { runAutomaticPipeline, type PipelineResult } from '../pipeline/runPipeline';
+import type { PipelineResult } from '../pipeline/runPipeline';
+import { runPipelineInWorker } from '../pipeline/workerClient';
 
 export type ToolMode = 'select' | 'addVertebra' | 'ruler';
 
@@ -83,19 +84,26 @@ export interface AppState {
    * de importar o si el pipeline aún no ha corrido.
    */
   autoDetection: PipelineResult | null;
+  /** true mientras `runPipelineInWorker` está en vuelo (SPEC.md §8: "corre
+   * en un Web Worker" — no bloquea el hilo principal, así que hay un hueco
+   * real entre importar y tener `autoDetection`). */
+  autoDetectionLoading: boolean;
 
   loadImage: (image: ImageSource, radiograph: Radiograph, calibration?: Calibration) => void;
-  /** SPEC.md §8: "se dispara al importar, sin que el usuario pulse nada."
-   * Corre las etapas de detección (sin ancla de nivel todavía) y guarda el
-   * resultado en `autoDetection` para que la UI lo muestre. */
-  runAutoDetection: () => void;
+  /** SPEC.md §8: "se dispara al importar, sin que el usuario pulse nada" y
+   * "corre en un Web Worker". Corre las etapas de detección (sin ancla de
+   * nivel todavía) en el worker y guarda el resultado en `autoDetection`
+   * para que la UI lo muestre. Devuelve la `Promise` para que quien la
+   * llame (p. ej. las pruebas) pueda esperar a que termine. */
+  runAutoDetection: () => Promise<void>;
   /** Etapa 4: confirma qué nivel corresponde a la banda `bandIndex` de
-   * `autoDetection.detectedBands`, vuelve a correr el pipeline con ese
-   * ancla y, si produce un resultado, reemplaza las vértebras anotadas del
-   * `Radiograph` activo por las detectadas (con su `confidence`), como
-   * punto de partida editable — igual que el "bucle de mejora" de SPEC.md
-   * §12: cualquier corrección manual posterior marca `edited: true`. */
-  applyAutoDetectionAnchor: (bandIndex: number, level: SpinalLevel) => void;
+   * `autoDetection.detectedBands`, vuelve a correr el pipeline (en el
+   * worker) con ese ancla y, si produce un resultado, reemplaza las
+   * vértebras anotadas del `Radiograph` activo por las detectadas (con su
+   * `confidence`), como punto de partida editable — igual que el "bucle de
+   * mejora" de SPEC.md §12: cualquier corrección manual posterior marca
+   * `edited: true`. */
+  applyAutoDetectionAnchor: (bandIndex: number, level: SpinalLevel) => Promise<void>;
   setRadiographView: (view: Radiograph['view']) => void;
   setPatientRef: (patientRef: string) => void;
   setStudyDate: (date: string) => void;
@@ -194,6 +202,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   layerVisibility: { landmarks: true, derivedLines: true, labels: true },
   helpVisible: false,
   autoDetection: null,
+  autoDetectionLoading: false,
 
   loadImage: (image, radiograph, calibration) => {
     set({
@@ -213,29 +222,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       measurementSet: recompute(radiograph, calibration, null),
       autoDetection: null,
     });
-    get().runAutoDetection();
+    // SPEC.md §8: "se dispara al importar, sin que el usuario pulse nada."
+    // No se espera aquí (loadImage sigue siendo síncrona para quien la
+    // llama) — corre en segundo plano y actualiza el estado cuando termina.
+    void get().runAutoDetection();
   },
 
-  runAutoDetection: () => {
+  runAutoDetection: async () => {
     const { image, radiograph } = get();
     if (!image) return;
+    set({ autoDetectionLoading: true });
     try {
-      const result = runAutomaticPipeline(image, radiograph?.view ?? null);
+      const result = await runPipelineInWorker(image, radiograph?.view ?? null);
+      // Si se importó otra imagen mientras esta detección estaba en vuelo,
+      // descartar el resultado obsoleto en vez de pisar el estado actual.
+      if (get().image !== image) return;
       set({ autoDetection: result });
     } catch {
       // Un heurístico best-effort no debe tumbar la importación si falla
       // sobre una imagen atípica: se queda sin detección automática, el
       // flujo manual sigue disponible igual (SPEC.md §8 no es una ruta
       // obligatoria para poder medir).
-      set({ autoDetection: null });
+      if (get().image === image) set({ autoDetection: null });
+    } finally {
+      if (get().image === image) set({ autoDetectionLoading: false });
     }
   },
 
-  applyAutoDetectionAnchor: (bandIndex, level) => {
+  applyAutoDetectionAnchor: async (bandIndex, level) => {
     const { image, radiograph, autoDetection, calibration, history } = get();
     if (!image || !radiograph || !autoDetection) return;
-    const result = runAutomaticPipeline(image, radiograph.view, { levelAnchor: { bandIndex, level } });
-    set({ autoDetection: result });
+    set({ autoDetectionLoading: true });
+    const result = await runPipelineInWorker(image, radiograph.view, { levelAnchor: { bandIndex, level } });
+    if (get().image !== image) return; // se importó otra imagen mientras tanto.
+    set({ autoDetection: result, autoDetectionLoading: false });
     if (!result.radiograph) return;
 
     const updated: Radiograph = { ...radiograph, annotations: { ...result.radiograph.annotations } };
