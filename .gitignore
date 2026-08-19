@@ -3,3 +3,11 @@ dist/
 coverage/
 *.local
 .DS_Store
+
+# Python (training/)
+training/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+training/runs/

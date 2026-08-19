@@ -8,7 +8,7 @@ Aplicación local de análisis morfométrico de radiografías de columna en esco
 
 - [x] **Fase 1 — Motor de geometría y mediciones.** `src/core/geometry` y `src/core/measurements`, sin interfaz.
 - [x] **Fase 2 — Visor, anotación y recálculo en vivo.** Carga DICOM/PNG/JPEG/TIFF, anonimización, calibración (DICOM y regla manual), anotación manual de vértebras/pelvis/costillas con recálculo en vivo, panel de mediciones, atajos de teclado, persistencia local (IndexedDB) e import/export JSON. Sin pipeline automático todavía: los landmarks se colocan a mano.
-- [ ] Fase 3 — Pipeline automático, vista PA de pie.
+- [ ] Fase 3 — Pipeline automático, vista PA de pie. **Andamiaje de entrenamiento listo** (`training/`: carga de datos, preprocesado, arquitectura U-Net, bucle de entrenamiento, exportación a ONNX — ver `training/README.md`), pero **sin modelo entrenado ni detección automática en la app**: falta un dataset real etiquetado y la integración de inferencia en `src/pipeline/`.
 - [ ] Fase 4 — Clasificadores.
 - [ ] Fase 5 — Vista lateral y parámetros pélvicos automáticos.
 - [ ] Fase 6 — Informes, seguimiento seriado y panel opcional de comparación.
@@ -29,7 +29,7 @@ src/
   imaging/            # carga DICOM/PNG/JPEG/TIFF, anonimización, window/level
   ui/                 # visor (Konva), paneles, store (Zustand)
   storage/            # persistencia local (Dexie/IndexedDB), import/export JSON
-training/             # entrenamiento de modelos, fuera del bundle
+training/             # entrenamiento de modelos, fuera del bundle (ver training/README.md)
 docs/
   OPEN_QUESTIONS.md
   REFERENCES.md
