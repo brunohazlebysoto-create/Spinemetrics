@@ -11,7 +11,8 @@ import { useState } from 'react';
 import { useAppStore } from './store';
 import { saveStudy } from '../storage/db';
 import { exportStudyToFile, importStudyFromFile } from '../storage/fileSystemAccess';
-import type { Study } from '../core/models/types';
+import { recomputeMeasurementSet } from './measurementEngine';
+import type { Radiograph, Study } from '../core/models/types';
 
 async function stableLocalId(study: Study, radiographId: string): Promise<string> {
   const seed = `${study.patientRef}|${study.date}|${radiographId}`;
@@ -25,23 +26,37 @@ async function stableLocalId(study: Study, radiographId: string): Promise<string
 export function StudyIO(): JSX.Element {
   const radiograph = useAppStore((s) => s.radiograph);
   const measurementSet = useAppStore((s) => s.measurementSet);
+  const otherRadiographs = useAppStore((s) => s.otherRadiographs);
   const patientRef = useAppStore((s) => s.patientRef);
   const studyDate = useAppStore((s) => s.studyDate);
   const ageYears = useAppStore((s) => s.ageYears);
   const setPatientRef = useAppStore((s) => s.setPatientRef);
   const setStudyDate = useAppStore((s) => s.setStudyDate);
   const setAgeYears = useAppStore((s) => s.setAgeYears);
-  const importRadiograph = useAppStore((s) => s.importRadiograph);
+  const importStudy = useAppStore((s) => s.importStudy);
   const [status, setStatus] = useState<string | null>(null);
 
+  /** SPEC.md §5: un `Study` puede tener varias radiografías (bending,
+   * lateral, etc., ver `store.ts::otherRadiographs`). La activa ya trae su
+   * `MeasurementSet` recalculado en vivo; el resto no lo tiene guardado
+   * (sólo se activa el que está en el visor) — se recalcula aquí mismo con
+   * `recomputeMeasurementSet`, la MISMA función que usa el store, para que
+   * ninguna quede fuera del JSON exportado ni del guardado local. */
   function buildStudy(): Study | null {
     if (!radiograph || !measurementSet) return null;
+    const allRadiographs: Radiograph[] = [radiograph, ...otherRadiographs.map((e) => e.radiograph)];
+    const otherMeasurementSets = otherRadiographs.map((entry) =>
+      recomputeMeasurementSet(entry.radiograph, {
+        ...(entry.calibration ? { calibration: entry.calibration } : {}),
+        otherStudyRadiographs: allRadiographs.filter((r) => r !== entry.radiograph),
+      }),
+    );
     return {
       patientRef: patientRef || 'sin-seudónimo',
       date: studyDate,
       ageYears,
-      radiographs: [radiograph],
-      measurementSets: [measurementSet],
+      radiographs: allRadiographs,
+      measurementSets: [measurementSet, ...otherMeasurementSets],
     };
   }
 
@@ -66,9 +81,12 @@ export function StudyIO(): JSX.Element {
     setPatientRef(study.patientRef);
     setStudyDate(study.date);
     setAgeYears(study.ageYears);
-    const importedRadiograph = study.radiographs[0];
-    if (importedRadiograph) importRadiograph(importedRadiograph);
-    setStatus('Importado. Vuelve a cargar la imagen original si quieres verla en el visor.');
+    if (study.radiographs.length > 0) importStudy(study.radiographs);
+    setStatus(
+      study.radiographs.length > 1
+        ? `Importado (${study.radiographs.length} radiografías). Vuelve a cargar la imagen original de cada una si quieres verlas en el visor.`
+        : 'Importado. Vuelve a cargar la imagen original si quieres verla en el visor.',
+    );
   }
 
   return (

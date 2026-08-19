@@ -153,6 +153,11 @@ SPEC.md §9.7 dice "Grupo II tronco descompensado con oblicuidad pélvica" y "la
 - **Por defecto (implementado en `core/classification/neuromuscular.ts`):** no se fabrica un corte numérico no publicado. La "oblicuidad pélvica significativa" y el "tronco compensado/descompensado" son entradas explícitas del clínico (booleanas), no derivadas automáticamente del ángulo de oblicuidad pélvica de `measurePelvicObliquity`.
 - **Pendiente:** si se localiza un umbral numérico en la fuente primaria de Lonstein-Akbarnia, sustituir la entrada manual por un cálculo automático a partir de `measurePelvicObliquity`.
 
+### #46 Lenke: qué bending (izquierdo/derecho) usar para probar la estructuralidad de cada curva
+SPEC.md §9.1 Paso 3 exige el Cobb "en bending" para el criterio coronal de estructuralidad, pero no especifica qué radiografía de bending (izquierda o derecha) corresponde a cada curva menor cuando el estudio tiene ambas. En la práctica clínica se usa el bending que corrige hacia la convexidad de esa curva concreta, pero eso exige conocer la convexidad de cada curva y emparejarla con el lado correcto — SPEC.md no lo detalla y la literatura secundaria consultada tampoco da una regla operacionalizable sin ambigüedad.
+- **Por defecto (implementado en `ui/classificationEngine.ts`):** si el estudio tiene ambos bendings, se mide el Cobb de esa curva (mismas vértebras terminales que en bipedestación) en los dos y se usa el **valor más corregido (menor)** de los dos — criterio conservador: exige más corrección real para considerar la curva no estructural, evitando subestimar la estructuralidad. Si sólo hay un bending disponible, se usa ese.
+- **Alternativa:** emparejar cada curva con el bending contralateral a su convexidad (más fiel a la práctica clínica, pero exige resolver primero la convexidad-a-lado de forma robusta para curvas con landmarks parcialmente fiables).
+
 ### #25 King-Moe tipo II: "más rígida por ≥3°"
 El criterio original mezcla magnitud y rigidez de forma difícil de operacionalizar.
 - **Por defecto:** implementar como criterio de magnitud (torácica > lumbar) y **no** intentar automatizar el componente de rigidez; ofrecer al usuario un conmutador manual.

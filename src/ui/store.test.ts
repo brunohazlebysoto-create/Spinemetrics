@@ -312,3 +312,81 @@ describe('detección automática (SPEC.md §8, sin modelo entrenado)', () => {
     expect(corrected.superiorEndplate[0]).toEqual({ x: 10, y: 10 });
   });
 });
+
+describe('multi-radiografía del estudio (SPEC.md §5, §9)', () => {
+  function mtCurve(): VertebraAnnotation[] {
+    return [
+      makeVertebra('T6', 0, 12),
+      makeVertebra('T7', 30, 18),
+      makeVertebra('T8', 60, 2),
+      makeVertebra('T9', 90, -15),
+      makeVertebra('T10', 120, -22),
+      makeVertebra('T11', 150, -8),
+    ];
+  }
+
+  function paRadiograph(): Radiograph {
+    return { id: 'pa', view: 'PA_standing', annotations: { vertebrae: mtCurve() } };
+  }
+
+  it('addRadiographToStudy añade una radiografía sin activarla y recalcula la clasificación de la activa con ella', () => {
+    useAppStore.getState().loadImage(makeImage(), paRadiograph());
+    const before = useAppStore.getState().measurementSet!.classifications.lenke as unknown as { sagittalModifier: string | null };
+    expect(before.sagittalModifier).toBeNull();
+
+    const lat: Radiograph = {
+      id: 'lat',
+      view: 'LAT_standing',
+      annotations: { vertebrae: [makeVertebra('T5', 0, 20), makeVertebra('T12', 200, -30)] },
+    };
+    useAppStore.getState().addRadiographToStudy(makeImage(), lat);
+
+    const state = useAppStore.getState();
+    expect(state.otherRadiographs).toHaveLength(1);
+    expect(state.radiograph!.id).toBe('pa'); // sigue activa la PA, la lateral no se activa sola.
+    const after = state.measurementSet!.classifications.lenke as unknown as { sagittalModifier: string | null };
+    expect(after.sagittalModifier).not.toBeNull();
+  });
+
+  it('switchActiveRadiograph intercambia la activa con otherRadiographs[index] (imagen, anotaciones y calibración)', () => {
+    const pa = paRadiograph();
+    const paImage = makeImage();
+    useAppStore.getState().loadImage(paImage, pa);
+
+    const lat: Radiograph = { id: 'lat', view: 'LAT_standing', annotations: { vertebrae: [] } };
+    const latImage = makeImage();
+    useAppStore.getState().addRadiographToStudy(latImage, lat);
+
+    useAppStore.getState().switchActiveRadiograph(0);
+    let state = useAppStore.getState();
+    expect(state.radiograph!.id).toBe('lat');
+    expect(state.image).toBe(latImage);
+    expect(state.otherRadiographs).toHaveLength(1);
+    expect(state.otherRadiographs[0]!.radiograph.id).toBe('pa');
+    expect(state.otherRadiographs[0]!.image).toBe(paImage);
+
+    useAppStore.getState().switchActiveRadiograph(0);
+    state = useAppStore.getState();
+    expect(state.radiograph!.id).toBe('pa');
+    expect(state.image).toBe(paImage);
+  });
+
+  it('switchActiveRadiograph no hace nada si la entrada no tiene imagen (radiografía importada sin recargarla)', () => {
+    useAppStore.getState().loadImage(makeImage(), paRadiograph());
+    useAppStore.getState().importStudy([paRadiograph(), { id: 'lat', view: 'LAT_standing', annotations: { vertebrae: [] } }]);
+    expect(useAppStore.getState().otherRadiographs[0]!.image).toBeUndefined();
+
+    useAppStore.getState().switchActiveRadiograph(0);
+    expect(useAppStore.getState().radiograph!.id).toBe('pa'); // no cambia: sin imagen no se puede activar.
+  });
+
+  it('importStudy reparte la primera radiografía como activa y el resto en otherRadiographs', () => {
+    const pa = paRadiograph();
+    const lat: Radiograph = { id: 'lat', view: 'LAT_standing', annotations: { vertebrae: [] } };
+    useAppStore.getState().importStudy([pa, lat]);
+    const state = useAppStore.getState();
+    expect(state.radiograph).toBe(pa);
+    expect(state.otherRadiographs).toHaveLength(1);
+    expect(state.otherRadiographs[0]!.radiograph).toBe(lat);
+  });
+});

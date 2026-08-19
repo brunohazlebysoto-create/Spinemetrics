@@ -27,6 +27,11 @@ export interface RecomputeOptions {
   /** SPEC.md §7.2 "Seguimiento": vértebras terminales heredadas del estudio
    * índice, o fijadas manualmente por el usuario con el atajo `E`. */
   forcedCobbTerminals?: { cranial: SpinalLevel; caudal: SpinalLevel };
+  /** Resto de radiografías del mismo `Study` (bending, lateral, etc.),
+   * distintas de `radiograph`. SPEC.md §9: la clasificación es un concepto
+   * de estudio, no de radiografía única — `classificationEngine.ts` las
+   * usa para Lenke/SRS-Schwab/Roussouly cuando existen. */
+  otherStudyRadiographs?: Radiograph[];
 }
 
 /**
@@ -71,7 +76,7 @@ export function recomputeMeasurementSet(radiograph: Radiograph, options: Recompu
     }
   }
 
-  const classifications = recomputeClassifications(radiograph, {
+  const classifications = recomputeClassifications([radiograph, ...(options.otherStudyRadiographs ?? [])], {
     ...(options.calibration ? { calibration: options.calibration } : {}),
     conventions,
   });

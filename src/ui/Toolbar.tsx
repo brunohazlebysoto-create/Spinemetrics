@@ -5,6 +5,7 @@
  */
 import { useAppStore } from './store';
 import { ImportControl } from './ImportControl';
+import { RadiographSwitcher } from './RadiographSwitcher';
 import { AddVertebraControl } from './AddVertebraControl';
 import { WindowLevelControl } from './WindowLevelControl';
 import { StudyIO } from './StudyIO';
@@ -75,6 +76,8 @@ export function Toolbar(): JSX.Element {
               ))}
             </select>
           </label>
+
+          <RadiographSwitcher />
 
           <div style={{ display: 'flex', gap: 4 }}>
             <ToolbarButton active={activeTool === 'select'} onClick={() => setActiveTool('select')}>
