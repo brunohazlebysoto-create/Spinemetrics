@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useAppStore } from './store';
 import type { CobbMeasurement } from '../core/measurements/cobb';
 import type { Radiograph, VertebraAnnotation } from '../core/models/types';
-import type { RasterImageSource } from '../imaging/types';
+import type { DicomImageSource, RasterImageSource } from '../imaging/types';
 
 const initialState = useAppStore.getState();
 
@@ -243,5 +243,64 @@ describe('estado de vista: zoom, capas, overlays, window/level', () => {
     const state = useAppStore.getState();
     expect(state.windowCenter).toBe(50);
     expect(state.windowWidth).toBe(350);
+  });
+});
+
+describe('detección automática (SPEC.md §8, sin modelo entrenado)', () => {
+  function makeSyntheticSpineDicom(): DicomImageSource {
+    const width = 200;
+    const height = 800;
+    const pixelData = new Float32Array(width * height).fill(100);
+    let y = 40;
+    for (let i = 0; i < 8; i++) {
+      for (let yy = y; yy < y + 40; yy++) {
+        for (let xx = 50; xx < 150; xx++) pixelData[yy * width + xx] = 800;
+      }
+      y += 52;
+    }
+    return { kind: 'dicom', width, height, pixelData, defaultWindowCenter: 450, defaultWindowWidth: 700, monochrome1: false };
+  }
+
+  it('loadImage dispara la detección automática sin que el usuario haga nada (SPEC.md §8)', () => {
+    useAppStore.getState().loadImage(makeSyntheticSpineDicom(), makeRadiograph());
+    const state = useAppStore.getState();
+    expect(state.autoDetection).not.toBeNull();
+    expect(state.autoDetection!.detectedBands.length).toBeGreaterThan(0);
+    // Etapa 4 sin ancla: nunca hay measurementSet automático fabricado.
+    expect(state.autoDetection!.measurementSet).toBeNull();
+  });
+
+  it('una imagen sin ninguna estructura detectable no rompe la importación', () => {
+    const flat: DicomImageSource = { kind: 'dicom', width: 50, height: 50, pixelData: new Float32Array(2500).fill(100), defaultWindowCenter: 100, defaultWindowWidth: 50, monochrome1: false };
+    useAppStore.getState().loadImage(flat, makeRadiograph());
+    expect(useAppStore.getState().radiograph).not.toBeNull();
+  });
+
+  it('applyAutoDetectionAnchor confirma un nivel y carga las vértebras detectadas', () => {
+    useAppStore.getState().loadImage(makeSyntheticSpineDicom(), makeRadiograph());
+    const bandCount = useAppStore.getState().autoDetection!.detectedBands.length;
+    expect(bandCount).toBeGreaterThan(0);
+
+    useAppStore.getState().applyAutoDetectionAnchor(0, 'T4');
+    const state = useAppStore.getState();
+
+    expect(state.autoDetection!.levelLabeling.uncertain).toBe(false);
+    expect(state.radiograph!.annotations.vertebrae.length).toBe(bandCount);
+    expect(state.radiograph!.annotations.vertebrae[0]!.level).toBe('T4');
+    expect(state.radiograph!.annotations.vertebrae[0]!.confidence).toBeDefined();
+    expect(state.measurementSet).not.toBeNull();
+    expect(state.measurementSet!.source).toBe('auto');
+    expect(state.history).toHaveLength(1); // se puede deshacer con Ctrl+Z.
+  });
+
+  it('las vértebras autodetectadas se pueden corregir a mano después (bucle de mejora, SPEC.md §12)', () => {
+    useAppStore.getState().loadImage(makeSyntheticSpineDicom(), makeRadiograph());
+    useAppStore.getState().applyAutoDetectionAnchor(0, 'T4');
+    const level = useAppStore.getState().radiograph!.annotations.vertebrae[0]!.level;
+
+    useAppStore.getState().updateLandmark({ kind: 'vertebraEndplate', level, which: 'superior', side: 'left' }, { x: 10, y: 10 });
+
+    const corrected = useAppStore.getState().radiograph!.annotations.vertebrae.find((v) => v.level === level)!;
+    expect(corrected.superiorEndplate[0]).toEqual({ x: 10, y: 10 });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareSpinalLevels, isSpinalLevelBetween, spinalLevelRank } from './spinalLevelOrder';
+import { compareSpinalLevels, isSpinalLevelBetween, spinalLevelAtRank, spinalLevelRank } from './spinalLevelOrder';
 
 describe('spinalLevelRank', () => {
   it('orders C7 before all thoracic levels', () => {
@@ -28,6 +28,19 @@ describe('compareSpinalLevels', () => {
 
   it('is positive when a is more caudal than b', () => {
     expect(compareSpinalLevels('L2', 'T10')).toBeGreaterThan(0);
+  });
+});
+
+describe('spinalLevelAtRank', () => {
+  it('es la inversa de spinalLevelRank para cualquier nivel', () => {
+    for (const level of ['C7', 'T1', 'T7', 'T12', 'L1', 'L5', 'S1'] as const) {
+      expect(spinalLevelAtRank(spinalLevelRank(level))).toBe(level);
+    }
+  });
+
+  it('devuelve null fuera de rango, sin redondear al extremo más cercano', () => {
+    expect(spinalLevelAtRank(-1)).toBeNull();
+    expect(spinalLevelAtRank(spinalLevelRank('S1') + 1)).toBeNull();
   });
 });
 

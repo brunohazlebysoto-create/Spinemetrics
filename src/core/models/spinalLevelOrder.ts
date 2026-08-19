@@ -18,6 +18,15 @@ export function spinalLevelRank(level: SpinalLevel): number {
   return ORDER.indexOf(level);
 }
 
+/** Inversa de `spinalLevelRank`: el nivel en la posición `rank` del orden
+ * craneal→caudal, o `null` si `rank` cae fuera de `SpinalLevel` (p. ej.
+ * contando más craneal que C7 o más caudal que S1 — SPEC.md §8 Etapa 4, "si
+ * el recuento no cuadra... sin adivinar": un recuento que se sale del
+ * dominio nunca se redondea al extremo más cercano). */
+export function spinalLevelAtRank(rank: number): SpinalLevel | null {
+  return rank >= 0 && rank < ORDER.length ? ORDER[rank]! : null;
+}
+
 export function compareSpinalLevels(a: SpinalLevel, b: SpinalLevel): number {
   return spinalLevelRank(a) - spinalLevelRank(b);
 }

@@ -17,6 +17,7 @@ import type { MeasurementSet } from '../core/models/types';
 import { getLandmarkPoint, setLandmarkPoint, type LandmarkRef } from './landmarkRef';
 import { compareSpinalLevels } from './spinalLevelOrder';
 import type { ImageSource } from '../imaging/types';
+import { runAutomaticPipeline, type PipelineResult } from '../pipeline/runPipeline';
 
 export type ToolMode = 'select' | 'addVertebra' | 'ruler';
 
@@ -75,7 +76,26 @@ export interface AppState {
   layerVisibility: LayerVisibility;
   helpVisible: boolean;
 
+  /**
+   * Etapas 0–3, 5 y 8 del pipeline automático (SPEC.md §8), ejecutadas sin
+   * ancla de nivel — sólo detección, nunca cálculo (Etapa 4 exige
+   * confirmación explícita, ver `applyAutoDetectionAnchor`). `null` antes
+   * de importar o si el pipeline aún no ha corrido.
+   */
+  autoDetection: PipelineResult | null;
+
   loadImage: (image: ImageSource, radiograph: Radiograph, calibration?: Calibration) => void;
+  /** SPEC.md §8: "se dispara al importar, sin que el usuario pulse nada."
+   * Corre las etapas de detección (sin ancla de nivel todavía) y guarda el
+   * resultado en `autoDetection` para que la UI lo muestre. */
+  runAutoDetection: () => void;
+  /** Etapa 4: confirma qué nivel corresponde a la banda `bandIndex` de
+   * `autoDetection.detectedBands`, vuelve a correr el pipeline con ese
+   * ancla y, si produce un resultado, reemplaza las vértebras anotadas del
+   * `Radiograph` activo por las detectadas (con su `confidence`), como
+   * punto de partida editable — igual que el "bucle de mejora" de SPEC.md
+   * §12: cualquier corrección manual posterior marca `edited: true`. */
+  applyAutoDetectionAnchor: (bandIndex: number, level: SpinalLevel) => void;
   setRadiographView: (view: Radiograph['view']) => void;
   setPatientRef: (patientRef: string) => void;
   setStudyDate: (date: string) => void;
@@ -173,6 +193,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   overlaysVisible: true,
   layerVisibility: { landmarks: true, derivedLines: true, labels: true },
   helpVisible: false,
+  autoDetection: null,
 
   loadImage: (image, radiograph, calibration) => {
     set({
@@ -190,6 +211,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       windowCenter: image.kind === 'dicom' ? image.defaultWindowCenter : null,
       windowWidth: image.kind === 'dicom' ? image.defaultWindowWidth : null,
       measurementSet: recompute(radiograph, calibration, null),
+      autoDetection: null,
+    });
+    get().runAutoDetection();
+  },
+
+  runAutoDetection: () => {
+    const { image, radiograph } = get();
+    if (!image) return;
+    try {
+      const result = runAutomaticPipeline(image, radiograph?.view ?? null);
+      set({ autoDetection: result });
+    } catch {
+      // Un heurístico best-effort no debe tumbar la importación si falla
+      // sobre una imagen atípica: se queda sin detección automática, el
+      // flujo manual sigue disponible igual (SPEC.md §8 no es una ruta
+      // obligatoria para poder medir).
+      set({ autoDetection: null });
+    }
+  },
+
+  applyAutoDetectionAnchor: (bandIndex, level) => {
+    const { image, radiograph, autoDetection, calibration, history } = get();
+    if (!image || !radiograph || !autoDetection) return;
+    const result = runAutomaticPipeline(image, radiograph.view, { levelAnchor: { bandIndex, level } });
+    set({ autoDetection: result });
+    if (!result.radiograph) return;
+
+    const updated: Radiograph = { ...radiograph, annotations: { ...result.radiograph.annotations } };
+    set({
+      radiograph: updated,
+      history: [...history, radiograph],
+      measurementSet: result.measurementSet ?? recompute(updated, calibration, null),
+      selectedLandmark: null,
     });
   },
 
