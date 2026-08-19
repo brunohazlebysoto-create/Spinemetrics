@@ -2,6 +2,7 @@ import { Toolbar } from './ui/Toolbar';
 import { Viewer } from './ui/Viewer/Viewer';
 import { MeasurementsPanel } from './ui/Panels/MeasurementsPanel';
 import { AutoDetectionPanel } from './ui/Panels/AutoDetectionPanel';
+import { ClassificationPanel } from './ui/Panels/ClassificationPanel';
 
 export function App(): JSX.Element {
   return (
@@ -14,6 +15,7 @@ export function App(): JSX.Element {
         <aside style={{ width: 340, flexShrink: 0, borderLeft: '1px solid #26282e', background: '#111214', overflowY: 'auto' }}>
           <AutoDetectionPanel />
           <MeasurementsPanel />
+          <ClassificationPanel />
         </aside>
       </div>
     </div>

@@ -1,9 +1,12 @@
 /**
- * Puente entre un `Radiograph` anotado y el motor puro de `core/measurements`.
- * SPEC.md §10.2: "Al moverlo se recalculan líneas, ángulos, balances y
- * clasificación en tiempo real." Este módulo es la función que la Fase 2
- * llama en cada cambio de landmark; la clasificación (§9) se añade en la
- * Fase 4 sobre el mismo `MeasurementSet`.
+ * Puente entre un `Radiograph` anotado y el motor puro de `core/measurements`
+ * y `core/classification`. SPEC.md §10.2: "Al moverlo se recalculan
+ * líneas, ángulos, balances y clasificación en tiempo real." Es la ÚNICA
+ * función que produce un `MeasurementSet` completo (mediciones +
+ * clasificaciones) en toda la aplicación — `store.ts` (edición manual) y
+ * `pipeline/runPipeline.ts` (Etapa 7 automática) llaman a esta misma
+ * función, nunca reimplementan la orquestación: es la única forma de
+ * garantizar, no sólo prometer, que ambas rutas pasan por el mismo motor.
  *
  * Puro y sin DOM: no importa nada de `ui/Viewer` ni de Zustand, así que se
  * prueba igual que el resto de `core/` (SPEC.md §4 sólo prohíbe la
@@ -16,6 +19,7 @@ import { measurePelvicObliquity, measurePelvicParameters, measurePiLlMismatch } 
 import { DEFAULT_CONVENTIONS, type Conventions } from '../core/config/conventions';
 import type { Calibration } from '../core/calibration/calibration';
 import type { MeasurementSet, Radiograph, SpinalLevel } from '../core/models/types';
+import { recomputeClassifications } from './classificationEngine';
 
 export interface RecomputeOptions {
   calibration?: Calibration;
@@ -67,10 +71,15 @@ export function recomputeMeasurementSet(radiograph: Radiograph, options: Recompu
     }
   }
 
+  const classifications = recomputeClassifications(radiograph, {
+    ...(options.calibration ? { calibration: options.calibration } : {}),
+    conventions,
+  });
+
   return {
     source: 'manual',
     measurements,
-    classifications: {},
+    classifications,
     qc: { checks: [] },
     createdAt: new Date().toISOString(),
   };
