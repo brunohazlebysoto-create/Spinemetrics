@@ -5,6 +5,8 @@ import { AutoDetectionPanel } from './ui/Panels/AutoDetectionPanel';
 import { ClassificationPanel } from './ui/Panels/ClassificationPanel';
 import { ManualClassificationPanel } from './ui/Panels/ManualClassificationPanel';
 import { FollowUpPanel } from './ui/Panels/FollowUpPanel';
+import { SelfMeasurementPanel } from './ui/Panels/SelfMeasurementPanel';
+import { ResearchPanel } from './ui/Panels/ResearchPanel';
 
 export function App(): JSX.Element {
   return (
@@ -17,9 +19,11 @@ export function App(): JSX.Element {
         <aside style={{ width: 340, flexShrink: 0, borderLeft: '1px solid #26282e', background: '#111214', overflowY: 'auto' }}>
           <AutoDetectionPanel />
           <MeasurementsPanel />
+          <SelfMeasurementPanel />
           <ClassificationPanel />
           <ManualClassificationPanel />
           <FollowUpPanel />
+          <ResearchPanel />
         </aside>
       </div>
     </div>

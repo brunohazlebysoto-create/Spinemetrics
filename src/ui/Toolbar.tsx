@@ -7,6 +7,7 @@ import { useAppStore } from './store';
 import { ImportControl } from './ImportControl';
 import { RadiographSwitcher } from './RadiographSwitcher';
 import { AddVertebraControl } from './AddVertebraControl';
+import { SelfMeasurementControl } from './SelfMeasurementControl';
 import { WindowLevelControl } from './WindowLevelControl';
 import { StudyIO } from './StudyIO';
 import type { RadiographView } from '../core/models/types';
@@ -117,6 +118,8 @@ export function Toolbar(): JSX.Element {
           <button type="button" onClick={toggleHelp}>
             ?
           </button>
+
+          <SelfMeasurementControl />
         </>
       )}
 

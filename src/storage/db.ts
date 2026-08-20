@@ -4,7 +4,7 @@
  * borrado completo").
  */
 import Dexie, { type Table } from 'dexie';
-import type { Study } from '../core/models/types';
+import type { MeasurementSet, Study } from '../core/models/types';
 
 /** `Study` con una clave primaria local. `localId` es puramente interno de
  * IndexedDB — nunca se deriva de ningún identificador clínico ni se
@@ -14,8 +14,30 @@ export interface StoredStudy extends Study {
   localId: string;
 }
 
+/**
+ * Un caso de "Medir yo también" (SPEC.md §10.5) ya terminado: los dos
+ * `MeasurementSet` completos (propio y automático) sobre las MISMAS
+ * anotaciones que el usuario acaba de trazar — nunca sólo un par de
+ * números ya reducidos, para no fijar de antemano qué mediciones o
+ * clasificaciones podrá analizar `ui/researchStats.ts` más adelante. Sólo
+ * existe una entrada por caso donde el clínico haya usado esta función
+ * ("si nunca se usa, la aplicación funciona igual").
+ */
+export interface SelfMeasurementCase {
+  localId: string;
+  date: string;
+  own: MeasurementSet;
+  automatic: MeasurementSet;
+  /** `docs/OPEN_QUESTIONS.md` #39, "decisión firme": true si el automático
+   * se consultó antes de terminar la medición propia — rompe la
+   * independencia de la comparación. `ui/researchStats.ts`/`ResearchPanel`
+   * excluyen por defecto estos casos de la estadística agregada. */
+  unblinded: boolean;
+}
+
 class SpineMetricsDatabase extends Dexie {
   studies!: Table<StoredStudy, string>;
+  selfMeasurementCases!: Table<SelfMeasurementCase, string>;
 
   constructor() {
     super('spinemetrics');
@@ -24,6 +46,11 @@ class SpineMetricsDatabase extends Dexie {
       // un mismo seudónimo (seguimiento seriado, SPEC.md §10.4) sin tener
       // que leer toda la tabla.
       studies: 'localId, patientRef, date',
+    });
+    this.version(2).stores({
+      studies: 'localId, patientRef, date',
+      // SPEC.md §10.5: casos acumulados para el panel de "Investigación".
+      selfMeasurementCases: 'localId, date',
     });
   }
 }
@@ -56,4 +83,20 @@ export async function deleteStudy(localId: string): Promise<void> {
 /** SPEC.md §11: "opción de borrado completo." */
 export async function deleteAllStudies(): Promise<void> {
   await db.studies.clear();
+}
+
+export async function saveSelfMeasurementCase(selfMeasurementCase: SelfMeasurementCase): Promise<void> {
+  await db.selfMeasurementCases.put(selfMeasurementCase);
+}
+
+/** Todos los casos acumulados, para el panel de "Investigación" (SPEC.md
+ * §10.5) — sin filtrar, ya que el panel decide qué agregar. */
+export async function listSelfMeasurementCases(): Promise<SelfMeasurementCase[]> {
+  return db.selfMeasurementCases.toArray();
+}
+
+/** SPEC.md §11: "opción de borrado completo" — cualquier futuro control de
+ * borrado total debe llamar también a esto, no sólo a `deleteAllStudies`. */
+export async function deleteAllSelfMeasurementCases(): Promise<void> {
+  await db.selfMeasurementCases.clear();
 }

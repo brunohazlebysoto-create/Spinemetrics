@@ -24,7 +24,7 @@ import { compareSpinalLevels } from './spinalLevelOrder';
 import type { ImageSource } from '../imaging/types';
 import type { PipelineResult } from '../pipeline/runPipeline';
 import { runPipelineInWorker } from '../pipeline/workerClient';
-import { listStudiesForPatient, type StoredStudy } from '../storage/db';
+import { listStudiesForPatient, saveSelfMeasurementCase, type StoredStudy } from '../storage/db';
 import { inheritedCobbTerminals, paStandingMeasurementSet } from './followUp';
 
 export type ToolMode = 'select' | 'addVertebra' | 'ruler';
@@ -52,6 +52,19 @@ export interface StudyRadiographEntry {
   image?: ImageSource;
   radiograph: Radiograph;
   calibration?: Calibration;
+}
+
+/**
+ * SPEC.md §10.5: un trazado propio, paralelo e independiente del
+ * `Radiograph` automático activo — mismo `id`/`view`, anotaciones propias.
+ * Su `measurementSet` se calcula sólo con calibración (nunca con
+ * `forcedCobbTerminals`/`otherStudyRadiographs`/entradas manuales del
+ * automático), para que la comparación sea limpia: sólo mide lo que el
+ * clínico trazó, con las mismas reglas puras que el motor automático.
+ */
+export interface SelfMeasurement {
+  radiograph: Radiograph;
+  measurementSet: MeasurementSet | null;
 }
 
 export interface AppState {
@@ -94,6 +107,23 @@ export interface AppState {
    * comparar" — no un estudio índice sin elegir todavía por error. */
   priorStudies: StoredStudy[];
   selectedIndexStudyId: string | null;
+
+  /** SPEC.md §10.5 "Medir yo también": true mientras el usuario está
+   * trazando su propia medición (las herramientas de añadir vértebra
+   * escriben en `selfMeasurement` en vez de en `radiograph`). */
+  selfMeasurementActive: boolean;
+  /** El trazado propio en curso o ya terminado (persiste tras terminar,
+   * para poder seguir mostrando la tabla de comparación). `null` antes de
+   * empezar o tras cancelar — nunca un objeto "vacío" a medio construir. */
+  selfMeasurement: SelfMeasurement | null;
+  /** `docs/OPEN_QUESTIONS.md` #39, "decisión firme": true si en algún
+   * momento de la medición propia en curso se volvió a activar
+   * `overlaysVisible` (se consultó el automático antes de terminar).
+   * Irreversible para esta medición — sólo se reinicia al empezar una
+   * nueva con `startSelfMeasurement`. `ResearchPanel.tsx` excluye por
+   * defecto los casos guardados con esto en `true` de la estadística
+   * agregada, sin dejar de mostrarlos en la comparación individual. */
+  selfMeasurementUnblinded: boolean;
 
   activeTool: ToolMode;
   /** Nivel elegido antes de empezar a colocar las 4 esquinas de una
@@ -227,6 +257,29 @@ export interface AppState {
 
   undo: () => void;
 
+  /** SPEC.md §10.5 "Medir yo también" (opcional): empieza (o retoma) un
+   * trazado propio, independiente del automático, sobre las mismas
+   * herramientas de añadir vértebra. Mientras está activo,
+   * `placeVertebraCorner`/`removeVertebra` escriben en `selfMeasurement`
+   * en vez de en `radiograph` — nunca tocan el historial de deshacer del
+   * trazado automático. Oculta `overlaysVisible` al empezar; el usuario
+   * puede volver a activarlo desde la barra de herramientas en cualquier
+   * momento sin que la medición se bloquee ("no pasa nada si se consulta
+   * el automático a mitad de camino", SPEC.md §10.5) — pero hacerlo marca
+   * el caso `unblinded: true` de forma irreversible para esta medición
+   * (`docs/OPEN_QUESTIONS.md` #39, "decisión firme"), así que
+   * `ResearchPanel.tsx` lo excluye por defecto de la estadística agregada
+   * sin dejar de mostrarlo en la comparación de tres columnas. */
+  startSelfMeasurement: () => void;
+  /** Calcula el `MeasurementSet` final del trazado propio y guarda el caso
+   * (propio + automático completos, con su `unblinded`) en `storage/db.ts`
+   * para el panel de "Investigación" — sólo se acumula si el clínico
+   * llegó a usar esta función, nunca de oficio. */
+  finishSelfMeasurement: () => Promise<void>;
+  /** Descarta el trazado propio en curso sin guardar nada ("no marca nada
+   * de forma irreversible"). */
+  cancelSelfMeasurement: () => void;
+
   toggleOverlays: () => void;
   toggleLayer: (layer: keyof LayerVisibility) => void;
   setZoom: (zoom: number) => void;
@@ -293,6 +346,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   manualClassificationInputs: DEFAULT_MANUAL_CLASSIFICATION_INPUTS,
   priorStudies: [],
   selectedIndexStudyId: null,
+  selfMeasurementActive: false,
+  selfMeasurement: null,
+  selfMeasurementUnblinded: false,
 
   patientRef: '',
   studyDate: new Date().toISOString().slice(0, 10),
@@ -329,6 +385,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       otherRadiographs: [],
       priorStudies: [],
       selectedIndexStudyId: null,
+      selfMeasurementActive: false,
+      selfMeasurement: null,
+      selfMeasurementUnblinded: false,
       forcedCobbTerminals: null,
       selectedLandmark: null,
       activeTool: 'select',
@@ -540,8 +599,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   startAddVertebra: (level) => set({ activeTool: 'addVertebra', pendingVertebraLevel: level, pendingVertebraPoints: [] }),
 
   placeVertebraCorner: (point) => {
-    const { pendingVertebraLevel, pendingVertebraPoints, radiograph } = get();
-    if (!pendingVertebraLevel || !radiograph) return;
+    const { pendingVertebraLevel, pendingVertebraPoints, radiograph, selfMeasurementActive, selfMeasurement, calibration } = get();
+    const targetRadiograph = selfMeasurementActive ? selfMeasurement?.radiograph : radiograph;
+    if (!pendingVertebraLevel || !targetRadiograph) return;
 
     const points = [...pendingVertebraPoints, point];
     if (points.length < 4) {
@@ -556,14 +616,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       inferiorEndplate: [inferiorLeft, inferiorRight],
     };
 
-    const withoutExisting = radiograph.annotations.vertebrae.filter((v) => v.level !== pendingVertebraLevel);
+    const withoutExisting = targetRadiograph.annotations.vertebrae.filter((v) => v.level !== pendingVertebraLevel);
     const vertebrae = [...withoutExisting, newVertebra].sort((a, b) => compareSpinalLevels(a.level, b.level));
-    const updated: Radiograph = { ...radiograph, annotations: { ...radiograph.annotations, vertebrae } };
+    const updated: Radiograph = { ...targetRadiograph, annotations: { ...targetRadiograph.annotations, vertebrae } };
+
+    if (selfMeasurementActive) {
+      // Trazado propio: nunca toca `history` ni `recomputeContext` del
+      // automático — se mide limpio, sólo con calibración (SPEC.md §10.5).
+      set({
+        selfMeasurement: { radiograph: updated, measurementSet: recomputeMeasurementSet(updated, { ...(calibration ? { calibration } : {}) }) },
+        activeTool: 'select',
+        pendingVertebraLevel: null,
+        pendingVertebraPoints: [],
+      });
+      return;
+    }
 
     const { history } = get();
     set({
       radiograph: updated,
-      history: [...history, radiograph],
+      history: [...history, radiograph!],
       measurementSet: recompute(updated, recomputeContext(get)),
       activeTool: 'select',
       pendingVertebraLevel: null,
@@ -574,7 +646,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   cancelAddVertebra: () => set({ activeTool: 'select', pendingVertebraLevel: null, pendingVertebraPoints: [] }),
 
   removeVertebra: (level) => {
-    const { radiograph, history } = get();
+    const { radiograph, history, selfMeasurementActive, selfMeasurement, calibration } = get();
+    if (selfMeasurementActive) {
+      if (!selfMeasurement) return;
+      const vertebrae = selfMeasurement.radiograph.annotations.vertebrae.filter((v) => v.level !== level);
+      const updated: Radiograph = { ...selfMeasurement.radiograph, annotations: { ...selfMeasurement.radiograph.annotations, vertebrae } };
+      set({
+        selfMeasurement: { radiograph: updated, measurementSet: recomputeMeasurementSet(updated, { ...(calibration ? { calibration } : {}) }) },
+        selectedLandmark: null,
+      });
+      return;
+    }
+
     if (!radiograph) return;
     const vertebrae = radiograph.annotations.vertebrae.filter((v) => v.level !== level);
     const updated: Radiograph = { ...radiograph, annotations: { ...radiograph.annotations, vertebrae } };
@@ -680,7 +763,72 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  toggleOverlays: () => set((s) => ({ overlaysVisible: !s.overlaysVisible })),
+  startSelfMeasurement: () => {
+    const { radiograph, selfMeasurement } = get();
+    if (!radiograph) return;
+    set({
+      selfMeasurementActive: true,
+      // SPEC.md §10.5: "oculta los overlays para hacer una medición propia
+      // sobre la imagen limpia" — el usuario puede volver a activarlos a
+      // mano en cualquier momento (checkbox "Overlays" sigue funcionando
+      // igual durante este modo) sin que la medición se bloquee, pero
+      // hacerlo marca `selfMeasurementUnblinded` (ver `toggleOverlays`).
+      overlaysVisible: false,
+      selfMeasurementUnblinded: false,
+      // Retoma el trazado propio si ya había uno en curso para este
+      // `Radiograph` (mismo id); si no, empieza uno en blanco.
+      selfMeasurement:
+        selfMeasurement && selfMeasurement.radiograph.id === radiograph.id
+          ? selfMeasurement
+          : { radiograph: { id: radiograph.id, view: radiograph.view, annotations: { vertebrae: [] } }, measurementSet: null },
+      activeTool: 'select',
+      pendingVertebraLevel: null,
+      pendingVertebraPoints: [],
+    });
+  },
+
+  finishSelfMeasurement: async () => {
+    const { selfMeasurement, measurementSet, selfMeasurementUnblinded } = get();
+    set({
+      selfMeasurementActive: false,
+      overlaysVisible: true,
+      activeTool: 'select',
+      pendingVertebraLevel: null,
+      pendingVertebraPoints: [],
+    });
+    if (!selfMeasurement || !measurementSet) return;
+    // SPEC.md §10.5: sólo se acumula si el clínico llegó a usar esta
+    // función y hay algo con qué compararlo — nunca un caso "vacío".
+    if (selfMeasurement.radiograph.annotations.vertebrae.length === 0 || !selfMeasurement.measurementSet) return;
+    await saveSelfMeasurementCase({
+      localId: crypto.randomUUID(),
+      date: get().studyDate,
+      own: selfMeasurement.measurementSet,
+      automatic: measurementSet,
+      unblinded: selfMeasurementUnblinded,
+    });
+  },
+
+  cancelSelfMeasurement: () =>
+    set({
+      selfMeasurementActive: false,
+      selfMeasurement: null,
+      selfMeasurementUnblinded: false,
+      overlaysVisible: true,
+      activeTool: 'select',
+      pendingVertebraLevel: null,
+      pendingVertebraPoints: [],
+    }),
+
+  toggleOverlays: () =>
+    set((s) => {
+      const overlaysVisible = !s.overlaysVisible;
+      // `docs/OPEN_QUESTIONS.md` #39, "decisión firme": volver a activar los
+      // overlays a mitad de una medición propia marca el caso sin cegar de
+      // forma irreversible para el resto de esta medición.
+      const selfMeasurementUnblinded = s.selfMeasurementActive && overlaysVisible ? true : s.selfMeasurementUnblinded;
+      return { overlaysVisible, selfMeasurementUnblinded };
+    }),
   toggleLayer: (layer) => set((s) => ({ layerVisibility: { ...s.layerVisibility, [layer]: !s.layerVisibility[layer] } })),
   setZoom: (zoom) => set({ zoom: clampZoom(zoom) }),
   setPan: (pan) => set({ pan }),

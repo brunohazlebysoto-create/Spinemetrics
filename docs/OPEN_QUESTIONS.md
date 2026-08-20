@@ -246,11 +246,13 @@ Los tornillos y barras ocultan platillos y falsean tanto la detección automáti
 ### #38 ★★ Qué cuenta como "caso válido" para comparar automático vs manual
 - **Por defecto:** se excluyen del análisis estadístico los casos con `instrumented: true`, `unblinded: true` (ver #39), calibración ausente cuando se comparan distancias, o menos de 12 vértebras identificables.
 - Los criterios de exclusión deben fijarse **antes** de empezar a medir, no después de ver los resultados.
+- **Implementado parcialmente:** `ResearchPanel.tsx` sólo aplica la exclusión por `unblinded` (ver #39). `instrumented`, calibración ausente y el mínimo de 12 vértebras identificables **no** se filtran todavía — `SelfMeasurementCase` (`storage/db.ts`) no guarda esos tres datos por caso. Pendiente: añadirlos al caso guardado (o derivarlos del `MeasurementSet`/`Study.clinical` correspondiente) y filtrar por ellos aquí también.
 
 ### #39 ★★ Integridad del cegamiento
 Si el resultado automático se consulta antes de terminar la medición manual, la comparación deja de ser independiente.
 - **Decisión firme:** la aplicación registra con marca de tiempo si el panel automático fue abierto antes de cerrar la medición manual. Si ocurre, el caso se marca `unblinded: true` de forma **irreversible** y se excluye por defecto.
 - Esta salvaguarda es la que hace que los resultados de concordancia sean publicables.
+- **Implementado (sin marca de tiempo):** `store.ts::toggleOverlays` marca `selfMeasurementUnblinded: true` de forma irreversible para la medición en curso en cuanto se reactivan los overlays automáticos mientras `selfMeasurementActive` es `true`; `finishSelfMeasurement` lo guarda como `unblinded` en el `SelfMeasurementCase`. `ResearchPanel.tsx` excluye esos casos de Bland-Altman/ICC/kappa por defecto, mostrando cuántos se excluyeron en vez de ocultarlo. No se guarda la marca de tiempo del momento exacto en que se consultó — sólo el booleano final, que es lo único que decide la exclusión.
 
 ### #40 Tolerancias de concordancia por parámetro
 Qué diferencia se considera aceptable no es lo mismo para cada medida.

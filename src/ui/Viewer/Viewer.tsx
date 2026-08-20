@@ -12,6 +12,7 @@ import { ImageLayer } from './ImageLayer';
 import { LandmarksLayer } from './LandmarksLayer';
 import { DerivedLinesLayer } from './DerivedLinesLayer';
 import { LabelsLayer } from './LabelsLayer';
+import { SelfMeasurementLayer } from './SelfMeasurementLayer';
 import { Magnifier } from './Magnifier';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { HelpPanel } from './HelpPanel';
@@ -163,6 +164,9 @@ export function Viewer(): JSX.Element {
           </Layer>
           <Layer>
             <LabelsLayer zoom={zoom} />
+          </Layer>
+          <Layer listening={false}>
+            <SelfMeasurementLayer imageWidth={image.width} imageHeight={image.height} zoom={zoom} />
           </Layer>
           {activeTool === 'ruler' && rulerPoints.length > 0 && (
             <Layer listening={false}>

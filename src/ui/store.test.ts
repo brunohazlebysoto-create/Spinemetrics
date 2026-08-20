@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useAppStore } from './store';
 import { recomputeMeasurementSet } from './measurementEngine';
-import { db, saveStudy, type StoredStudy } from '../storage/db';
+import { db, listSelfMeasurementCases, saveStudy, type StoredStudy } from '../storage/db';
 import type { CobbMeasurement } from '../core/measurements/cobb';
 import type { Radiograph, VertebraAnnotation } from '../core/models/types';
 import type { DicomImageSource, RasterImageSource } from '../imaging/types';
@@ -12,7 +12,13 @@ const initialState = useAppStore.getState();
 beforeEach(async () => {
   useAppStore.setState(initialState, true);
   await db.studies.clear();
+  await db.selfMeasurementCases.clear();
 });
+
+function placeVertebra(level: VertebraAnnotation['level'], corners: [number, number][]): void {
+  useAppStore.getState().startAddVertebra(level);
+  for (const [x, y] of corners) useAppStore.getState().placeVertebraCorner({ x, y });
+}
 
 function makeImage(): RasterImageSource {
   return { kind: 'raster', bitmap: {} as ImageBitmap, width: 400, height: 800 };
@@ -541,5 +547,122 @@ describe('seguimiento seriado (SPEC.md §10.4)', () => {
   it('getPaStandingMeasurementSet devuelve null si el estudio no tiene ninguna PA_standing', () => {
     useAppStore.getState().loadImage(makeImage(), { id: 'lat', view: 'LAT_standing', annotations: { vertebrae: [] } });
     expect(useAppStore.getState().getPaStandingMeasurementSet()).toBeNull();
+  });
+});
+
+describe('"Medir yo también" (SPEC.md §10.5)', () => {
+  it('startSelfMeasurement empieza un trazado propio vacío, independiente del automático', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]));
+    useAppStore.getState().startSelfMeasurement();
+
+    const state = useAppStore.getState();
+    expect(state.selfMeasurementActive).toBe(true);
+    expect(state.selfMeasurement!.radiograph.annotations.vertebrae).toEqual([]);
+    expect(state.radiograph!.annotations.vertebrae).toHaveLength(2); // el automático no se toca.
+  });
+
+  it('mientras está activo, placeVertebraCorner/removeVertebra escriben en el trazado propio, nunca en el automático', () => {
+    const automaticRadiograph = makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]);
+    useAppStore.getState().loadImage(makeImage(), automaticRadiograph);
+    const automaticMeasurementSetBefore = useAppStore.getState().measurementSet;
+    const historyLengthBefore = useAppStore.getState().history.length;
+
+    useAppStore.getState().startSelfMeasurement();
+    placeVertebra('T5', [[180, 0], [220, 4], [180, 30], [220, 30]]);
+    placeVertebra('T12', [[180, 200], [220, 196], [180, 230], [220, 230]]);
+
+    const state = useAppStore.getState();
+    expect(state.selfMeasurement!.radiograph.annotations.vertebrae.map((v) => v.level)).toEqual(['T5', 'T12']);
+    expect(state.selfMeasurement!.measurementSet).not.toBeNull();
+    // El automático queda exactamente igual: ni las vértebras, ni el
+    // measurementSet, ni el historial de deshacer se tocan.
+    expect(state.radiograph).toBe(automaticRadiograph);
+    expect(state.measurementSet).toBe(automaticMeasurementSetBefore);
+    expect(state.history).toHaveLength(historyLengthBefore);
+
+    useAppStore.getState().removeVertebra('T12');
+    expect(useAppStore.getState().selfMeasurement!.radiograph.annotations.vertebrae.map((v) => v.level)).toEqual(['T5']);
+    expect(useAppStore.getState().radiograph!.annotations.vertebrae).toHaveLength(2); // sigue intacto.
+  });
+
+  it('cancelSelfMeasurement descarta el trazado propio sin guardar nada', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]));
+    useAppStore.getState().startSelfMeasurement();
+    placeVertebra('T5', [[180, 0], [220, 4], [180, 30], [220, 30]]);
+
+    useAppStore.getState().cancelSelfMeasurement();
+    const state = useAppStore.getState();
+    expect(state.selfMeasurementActive).toBe(false);
+    expect(state.selfMeasurement).toBeNull();
+  });
+
+  it('finishSelfMeasurement guarda un caso completo (propio + automático) sólo cuando hay algo trazado', async () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]));
+
+    useAppStore.getState().startSelfMeasurement();
+    await useAppStore.getState().finishSelfMeasurement(); // sin nada trazado: no debe guardar caso.
+    expect(await listSelfMeasurementCases()).toHaveLength(0);
+    expect(useAppStore.getState().selfMeasurementActive).toBe(false);
+
+    useAppStore.getState().startSelfMeasurement();
+    placeVertebra('T5', [[180, 0], [220, 4], [180, 30], [220, 30]]);
+    placeVertebra('T12', [[180, 200], [220, 196], [180, 230], [220, 230]]);
+    await useAppStore.getState().finishSelfMeasurement();
+
+    const cases = await listSelfMeasurementCases();
+    expect(cases).toHaveLength(1);
+    expect(cases[0]!.own.measurements.cobb!.status).toBe('ok');
+    expect(cases[0]!.automatic.measurements.cobb!.status).toBe('ok');
+
+    // El trazado propio sigue disponible para mostrar la tabla, aunque el
+    // modo ya no esté activo.
+    const state = useAppStore.getState();
+    expect(state.selfMeasurementActive).toBe(false);
+    expect(state.selfMeasurement).not.toBeNull();
+  });
+
+  it('integridad del cegamiento: reactivar overlays a mitad de la medición propia marca el caso unblinded (docs/OPEN_QUESTIONS.md #39)', async () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]));
+    useAppStore.getState().startSelfMeasurement();
+    expect(useAppStore.getState().overlaysVisible).toBe(false);
+    expect(useAppStore.getState().selfMeasurementUnblinded).toBe(false);
+
+    useAppStore.getState().toggleOverlays(); // consulta el automático a mitad de camino.
+    expect(useAppStore.getState().overlaysVisible).toBe(true);
+    expect(useAppStore.getState().selfMeasurementUnblinded).toBe(true);
+
+    // Es irreversible para esta medición: apagar overlays otra vez no lo limpia.
+    useAppStore.getState().toggleOverlays();
+    expect(useAppStore.getState().selfMeasurementUnblinded).toBe(true);
+
+    placeVertebra('T5', [[180, 0], [220, 4], [180, 30], [220, 30]]);
+    placeVertebra('T12', [[180, 200], [220, 196], [180, 230], [220, 230]]);
+    await useAppStore.getState().finishSelfMeasurement();
+
+    const cases = await listSelfMeasurementCases();
+    expect(cases).toHaveLength(1);
+    expect(cases[0]!.unblinded).toBe(true);
+  });
+
+  it('sin consultar el automático, el caso guardado queda unblinded: false', async () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]));
+    useAppStore.getState().startSelfMeasurement();
+    placeVertebra('T5', [[180, 0], [220, 4], [180, 30], [220, 30]]);
+    placeVertebra('T12', [[180, 200], [220, 196], [180, 230], [220, 230]]);
+    await useAppStore.getState().finishSelfMeasurement();
+
+    const cases = await listSelfMeasurementCases();
+    expect(cases[0]!.unblinded).toBe(false);
+  });
+
+  it('startSelfMeasurement reinicia selfMeasurementUnblinded para el siguiente intento', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]));
+    useAppStore.getState().startSelfMeasurement();
+    useAppStore.getState().toggleOverlays();
+    expect(useAppStore.getState().selfMeasurementUnblinded).toBe(true);
+
+    useAppStore.getState().cancelSelfMeasurement();
+    useAppStore.getState().startSelfMeasurement();
+    expect(useAppStore.getState().selfMeasurementUnblinded).toBe(false);
   });
 });
