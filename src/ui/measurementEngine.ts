@@ -16,6 +16,7 @@ import { measureCobb } from '../core/measurements/cobb';
 import { measureApicalTranslation, measureCoronalBalance } from '../core/measurements/balance';
 import { measureLumbarLordosis, measureSVA, measureT1Slope, measureTPA, measureThoracicKyphosis } from '../core/measurements/sagittal';
 import { measurePelvicObliquity, measurePelvicParameters, measurePiLlMismatch } from '../core/measurements/pelvic';
+import { measureT1S1Height, measureT1T12Height } from '../core/measurements/thoracicGrowth';
 import { DEFAULT_CONVENTIONS, type Conventions } from '../core/config/conventions';
 import type { Calibration } from '../core/calibration/calibration';
 import type { MeasurementSet, Radiograph, SpinalLevel } from '../core/models/types';
@@ -62,6 +63,8 @@ export function recomputeMeasurementSet(radiograph: Radiograph, options: Recompu
   measurements.sva = measureSVA(vertebrae, pelvis, options.calibration, conventions);
   measurements.t1Slope = measureT1Slope(vertebrae);
   measurements.tpa = measureTPA(vertebrae, pelvis);
+  measurements.t1t12Height = measureT1T12Height(vertebrae, options.calibration);
+  measurements.t1s1Height = measureT1S1Height(vertebrae, pelvis, options.calibration);
 
   if (pelvis) {
     measurements.coronalBalance = measureCoronalBalance(vertebrae, pelvis, options.calibration);

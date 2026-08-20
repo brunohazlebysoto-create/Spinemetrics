@@ -15,6 +15,12 @@ export function endplateLine(v: VertebraAnnotation, which: 'superior' | 'inferio
   return { p1: left, p2: right };
 }
 
+/** Punto medio del platillo superior o inferior de una vértebra. */
+export function endplateMidpoint(v: VertebraAnnotation, which: 'superior' | 'inferior'): Pt {
+  const [left, right] = which === 'superior' ? v.superiorEndplate : v.inferiorEndplate;
+  return { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
+}
+
 /**
  * Centroide de una vértebra: usa el campo `centroid` cuando está presente
  * (landmark directo del pipeline o del usuario); si no, el promedio de las

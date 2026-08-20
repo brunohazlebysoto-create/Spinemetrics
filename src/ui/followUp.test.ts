@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildCobbSeries, computeFollowUpDeltas, inheritedCobbTerminals, paStandingMeasurementSet } from './followUp';
+import { buildCobbSeries, buildMeasurementSeries, computeFollowUpDeltas, inheritedCobbTerminals, paStandingMeasurementSet } from './followUp';
 import { recomputeMeasurementSet } from './measurementEngine';
+import { calibrationFromRuler } from '../core/calibration/calibration';
 import type { Pt, Radiograph, VertebraAnnotation } from '../core/models/types';
 
 function tiltedEndplate(centerY: number, tiltDeg: number, xCenter = 200, width = 40): [Pt, Pt] {
@@ -129,5 +130,31 @@ describe('buildCobbSeries', () => {
     expect(series).toHaveLength(2); // el estudio sin Cobb se omite.
     expect(series.map((p) => p.date)).toEqual(['2023-01-01', '2024-06-01']); // cronológico.
     expect(series[1]!.cobbDeg).toBeGreaterThan(series[0]!.cobbDeg);
+  });
+});
+
+describe('buildMeasurementSeries — SPEC.md §7.11, crecimiento torácico', () => {
+  it('construye la serie cronológica de cualquier medición (p.ej. t1t12Height), omitiendo estudios sin valor calculable', () => {
+    const calibration = calibrationFromRuler(100, 10);
+    const shortSpine = makeRadiograph([makeVertebra('T1', 0, 0), makeVertebra('T12', 200, 0)]);
+    const tallerSpine = makeRadiograph([makeVertebra('T1', 0, 0), makeVertebra('T12', 300, 0)]);
+    const noT1 = makeRadiograph([makeVertebra('T12', 200, 0)]);
+
+    const studies = [
+      { date: '2024-06-01', radiographs: [tallerSpine], measurementSets: [recomputeMeasurementSet(tallerSpine, { calibration })] },
+      { date: '2023-01-01', radiographs: [shortSpine], measurementSets: [recomputeMeasurementSet(shortSpine, { calibration })] },
+      { date: '2023-09-01', radiographs: [noT1], measurementSets: [recomputeMeasurementSet(noT1, { calibration })] },
+    ];
+
+    const series = buildMeasurementSeries(studies, 't1t12Height');
+    expect(series).toHaveLength(2); // el estudio sin T1 se omite.
+    expect(series.map((p) => p.date)).toEqual(['2023-01-01', '2024-06-01']);
+    expect(series[1]!.value).toBeGreaterThan(series[0]!.value); // la columna más alta mide más.
+  });
+
+  it('vacío si ningún estudio tiene el valor calculable (nunca fabrica puntos)', () => {
+    const noCalibration = makeRadiograph([makeVertebra('T1', 0, 0), makeVertebra('T12', 200, 0)]);
+    const studies = [{ date: '2024-01-01', radiographs: [noCalibration], measurementSets: [recomputeMeasurementSet(noCalibration)] }];
+    expect(buildMeasurementSeries(studies, 't1t12Height')).toEqual([]);
   });
 });

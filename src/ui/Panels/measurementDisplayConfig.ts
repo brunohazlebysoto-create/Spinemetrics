@@ -1,14 +1,15 @@
 /**
  * Qué claves de `MeasurementSet.measurements` mostrar, en qué grupo y con
  * qué etiqueta. SPEC.md §10.1: "panel de mediciones agrupado (Coronal /
- * Sagital / Pélvico / Rotación / Crecimiento)". Rotación y Crecimiento no
- * tienen todavía una herramienta de anotación en el visor de la Fase 2
- * (Perdriolle exige bordes del cuerpo apical + pedículo convexo; Sanders/
- * Risser son campos clínicos de `Study.maturity`, no de un `Radiograph`) —
- * se omiten en vez de mostrar una sección vacía o engañosa.
+ * Sagital / Pélvico / Rotación / Crecimiento)". Rotación no tiene todavía
+ * una herramienta de anotación en el visor de la Fase 2 (Perdriolle exige
+ * bordes del cuerpo apical + pedículo convexo) — se omite en vez de
+ * mostrar una sección vacía o engañosa. Crecimiento sólo cubre T1–T12 y
+ * T1–S1 (derivables de landmarks ya existentes); SAL queda fuera —
+ * requiere un tipo de anotación nuevo, ver `core/measurements/thoracicGrowth.ts`.
  */
 
-export type MeasurementGroup = 'Coronal' | 'Sagital' | 'Pélvico';
+export type MeasurementGroup = 'Coronal' | 'Sagital' | 'Pélvico' | 'Crecimiento';
 
 export interface MeasurementDisplayConfig {
   key: string;
@@ -30,6 +31,8 @@ export const MEASUREMENT_DISPLAY_CONFIG: MeasurementDisplayConfig[] = [
   { key: 'pelvicIncidence', label: 'Incidencia pélvica (PI)', group: 'Pélvico' },
   { key: 'piLlMismatch', label: 'PI-LL mismatch', group: 'Pélvico' },
   { key: 'pelvicObliquity', label: 'Oblicuidad pélvica (Osebold)', group: 'Pélvico' },
+  { key: 't1t12Height', label: 'Altura T1–T12', group: 'Crecimiento' },
+  { key: 't1s1Height', label: 'Altura T1–S1', group: 'Crecimiento' },
 ];
 
-export const MEASUREMENT_GROUPS: MeasurementGroup[] = ['Coronal', 'Sagital', 'Pélvico'];
+export const MEASUREMENT_GROUPS: MeasurementGroup[] = ['Coronal', 'Sagital', 'Pélvico', 'Crecimiento'];

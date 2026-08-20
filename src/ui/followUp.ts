@@ -105,3 +105,28 @@ export function buildCobbSeries(studies: { date: string; radiographs: Radiograph
   }
   return points.sort((a, b) => a.date.localeCompare(b.date));
 }
+
+export interface MeasurementSeriesPoint {
+  date: string;
+  value: number;
+}
+
+/**
+ * Igual que `buildCobbSeries`, generalizado a cualquier clave de
+ * `MeasurementSet.measurements` — SPEC.md §7.11 "gráfico de evolución" para
+ * el crecimiento torácico (`t1t12Height`/`t1s1Height`) reutiliza exactamente
+ * el mismo criterio: sólo PA de pie, sólo puntos calculables, nunca
+ * interpolar un hueco entre dos estudios reales.
+ */
+export function buildMeasurementSeries(
+  studies: { date: string; radiographs: Radiograph[]; measurementSets: MeasurementSet[] }[],
+  key: string,
+): MeasurementSeriesPoint[] {
+  const points: MeasurementSeriesPoint[] = [];
+  for (const study of studies) {
+    const ms = paStandingMeasurementSet(study);
+    const result = ms?.measurements[key];
+    if (result && result.value !== null) points.push({ date: study.date, value: result.value });
+  }
+  return points.sort((a, b) => a.date.localeCompare(b.date));
+}

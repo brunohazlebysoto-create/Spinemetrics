@@ -214,10 +214,17 @@ SPEC.md §10.2 dice sólo "`E` ciclar vértebra terminal", sin especificar si ci
 ### #32 ★★ Risser americano vs francés
 No son equivalentes: el sistema francés asigna los grados más tarde. Un "Risser 3" significa cosas distintas según el sistema.
 - **Decisión firme:** el campo Risser **no puede guardarse sin especificar el sistema**. Debe ser un campo obligatorio en la interfaz, no un valor por defecto silencioso.
+- **Implementado:** `ui/Panels/MaturityPanel.tsx` deshabilita el `<select>` de Risser hasta elegir el sistema, y borrar el sistema borra también el grado (`store.ts::setMaturity`) — nunca puede quedar un Risser guardado sin su sistema.
 
 ### #33 Sanders original (1–8) vs Simplified Sanders (SSMS)
 Son escalas distintas y a menudo se citan intercambiablemente.
 - **Por defecto:** implementar la escala de **8 estadios**, etiquetando el campo con el nombre completo del sistema usado y una guía visual integrada.
+- **Implementado:** `ui/Panels/MaturityPanel.tsx`, selector de 8 estadios con una guía visual genérica (gradiente menos→más maduro). Los criterios de osificación exactos por estadio no se transcribieron — ver la nota #9 de la sección I (verificar en Sanders 2008 antes de un uso clínico/académico).
+
+### #48 SAL (crecimiento torácico): sin landmarks propios, no implementado
+SPEC.md §7.11 pide "SAL (razón entre altura hemitorácica cóncava y convexa)" junto con la altura T1–T12/T1–S1.
+- **Implementado:** altura T1–T12 y T1–S1 (`core/measurements/thoracicGrowth.ts`), derivadas de landmarks vertebrales/pélvicos que ya existen en el modelo de datos — sin ambigüedad, sin campos nuevos.
+- **No implementado:** SAL. Su definición original (Redding et al.) mide el espacio disponible para el pulmón por hemitórax entre el domo diafragmático y el vértice costal — landmarks que no existen en `core/models/types.ts`. `RibAnnotation` (cabeza/cuello costal del RVAD de Mehta, §7.9) describe un punto clínicamente distinto; reutilizarlo para SAL sería fabricar una medición a partir de un dato que no la representa (SPEC.md §8.1, "prohibido rellenar un hueco con un valor estimado"). Implementarlo de verdad exige: (1) un tipo de anotación nuevo (p. ej. `HemithoraxAnnotation` con el punto más craneal de la caja torácica y el punto más craneal del hemidiafragma por lado), (2) una herramienta del visor para colocarlo, y (3) confirmar en la fuente primaria si la definición correcta es una distancia lineal o un recuento de espacios intercostales (ambas versiones se citan en la literatura). Documentado aquí en vez de aproximarlo en silencio — mismo criterio que el modelo entrenado pendiente del pipeline automático (`pipeline/README.md`).
 
 ### #34 Umbral del escoliómetro para derivación: 5° o 7°
 - **Por defecto:** **7°** como umbral de derivación (criterio original, menos falsos positivos), mostrando simultáneamente que con 5° la sensibilidad es mayor.

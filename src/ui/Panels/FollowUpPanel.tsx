@@ -10,7 +10,14 @@
  */
 import { useState } from 'react';
 import { useAppStore } from '../store';
-import { buildCobbSeries, computeFollowUpDeltas, paStandingMeasurementSet, type CobbSeriesPoint } from '../followUp';
+import {
+  buildCobbSeries,
+  buildMeasurementSeries,
+  computeFollowUpDeltas,
+  paStandingMeasurementSet,
+  type CobbSeriesPoint,
+  type MeasurementSeriesPoint,
+} from '../followUp';
 import { UNIT_SUFFIX } from './formatMeasurement';
 
 function formatDelta(value: number, unit: string): string {
@@ -133,6 +140,46 @@ function CobbEvolutionChart({ series }: { series: CobbSeriesPoint[] }): JSX.Elem
   );
 }
 
+/**
+ * Igual que `CobbEvolutionChart` pero sin la banda de ±5° — SPEC.md §7.11
+ * pide un "gráfico de evolución" para el crecimiento torácico, pero no
+ * define un umbral de progresión publicado para T1–T12/T1–S1 como el que
+ * `docs/OPEN_QUESTIONS.md` #4 sí fija para el Cobb, así que aquí no se
+ * fabrica ninguna banda.
+ */
+function MeasurementEvolutionChart({ series, unit }: { series: MeasurementSeriesPoint[]; unit: string }): JSX.Element | null {
+  if (series.length === 0) return null;
+
+  const plotWidth = CHART_WIDTH - PAD_LEFT - PAD_RIGHT;
+  const plotHeight = CHART_HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const values = series.map((p) => p.value);
+  const minVal = Math.min(...values) - 2;
+  const maxVal = Math.max(...values) + 2;
+  const range = maxVal - minVal || 1;
+
+  const xFor = (i: number): number => PAD_LEFT + (series.length > 1 ? (i / (series.length - 1)) * plotWidth : plotWidth / 2);
+  const yFor = (v: number): number => PAD_TOP + plotHeight - ((v - minVal) / range) * plotHeight;
+  const linePoints = series.map((p, i) => `${xFor(i)},${yFor(p.value)}`).join(' ');
+
+  return (
+    <svg width={CHART_WIDTH} height={CHART_HEIGHT} role="img" aria-label="Evolución de la medición">
+      <polyline points={linePoints} fill="none" stroke="#60a5fa" strokeWidth={1.5} />
+      {series.map((p, i) => (
+        <g key={p.date + i}>
+          <circle cx={xFor(i)} cy={yFor(p.value)} r={3} fill="#60a5fa" />
+          <text x={xFor(i)} y={yFor(p.value) - 7} fontSize={10} fill="#c7cad1" textAnchor="middle">
+            {Math.round(p.value)}
+            {unit}
+          </text>
+          <text x={xFor(i)} y={CHART_HEIGHT - 4} fontSize={9} fill="#8a8f98" textAnchor="middle">
+            {p.date}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 export function FollowUpPanel(): JSX.Element | null {
   const radiograph = useAppStore((s) => s.radiograph);
   const patientRef = useAppStore((s) => s.patientRef);
@@ -161,6 +208,16 @@ export function FollowUpPanel(): JSX.Element | null {
     ...historicalSeries,
     ...(currentCobbDeg !== null ? [{ date: studyDate, cobbDeg: currentCobbDeg }] : []),
   ].sort((a, b) => a.date.localeCompare(b.date));
+
+  function growthSeries(key: 't1t12Height' | 't1s1Height'): MeasurementSeriesPoint[] {
+    const currentValue = currentSet?.measurements[key]?.value ?? null;
+    return [
+      ...buildMeasurementSeries(priorStudies, key),
+      ...(currentValue !== null ? [{ date: studyDate, value: currentValue }] : []),
+    ].sort((a, b) => a.date.localeCompare(b.date));
+  }
+  const t1t12Series = growthSeries('t1t12Height');
+  const t1s1Series = growthSeries('t1s1Height');
 
   return (
     <div style={{ padding: 16 }}>
@@ -204,6 +261,20 @@ export function FollowUpPanel(): JSX.Element | null {
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 12, color: '#8a8f98', marginBottom: 4 }}>Evolución del Cobb (banda ±5°)</div>
           <CobbEvolutionChart series={series} />
+        </div>
+      )}
+
+      {t1t12Series.length > 1 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12, color: '#8a8f98', marginBottom: 4 }}>Crecimiento torácico — altura T1–T12 (SPEC.md §7.11)</div>
+          <MeasurementEvolutionChart series={t1t12Series} unit={UNIT_SUFFIX.mm} />
+        </div>
+      )}
+
+      {t1s1Series.length > 1 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12, color: '#8a8f98', marginBottom: 4 }}>Crecimiento torácico — altura T1–S1 (SPEC.md §7.11)</div>
+          <MeasurementEvolutionChart series={t1s1Series} unit={UNIT_SUFFIX.mm} />
         </div>
       )}
     </div>
