@@ -14,9 +14,13 @@ const LABELS: Record<string, string> = {
   pumc: 'PUMC',
   srsSchwab: 'SRS-Schwab (adulto)',
   roussouly: 'Roussouly',
+  ceos: 'C-EOS (inicio precoz)',
+  congenital: 'Congénita (Winter/McMaster)',
+  neuromuscular: 'Neuromuscular (Lonstein-Akbarnia)',
+  lenkeSilva: 'Lenke-Silva (degenerativa del adulto)',
 };
 
-const ORDER = ['lenke', 'kingMoe', 'pumc', 'srsSchwab', 'roussouly'];
+const ORDER = ['lenke', 'kingMoe', 'pumc', 'srsSchwab', 'roussouly', 'ceos', 'congenital', 'neuromuscular', 'lenkeSilva'];
 
 export function ClassificationPanel(): JSX.Element | null {
   const measurementSet = useAppStore((s) => s.measurementSet);
@@ -31,8 +35,9 @@ export function ClassificationPanel(): JSX.Element | null {
         Clasificación
       </h3>
       <p style={{ margin: '0 0 8px', fontSize: 12, color: '#8a8f98' }}>
-        Calculada sobre la radiografía activa. Los clasificadores que combinan varias radiografías (bending, PA+lateral)
-        sólo usan lo que esta radiografía aporta — lo que falta se indica, nunca se inventa.
+        Calculada sobre todas las radiografías del estudio en curso (bending, PA+lateral incluidos cuando existen, no
+        sólo la que esté activa en el visor) más las entradas manuales de abajo — lo que falta se indica, nunca se
+        inventa.
       </p>
       {keys.map((key) => (
         <ClassificationRow key={key} label={LABELS[key]!} classification={measurementSet.classifications[key]!} />

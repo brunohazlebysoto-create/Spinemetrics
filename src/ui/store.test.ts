@@ -390,3 +390,49 @@ describe('multi-radiografía del estudio (SPEC.md §5, §9)', () => {
     expect(state.otherRadiographs[0]!.radiograph).toBe(lat);
   });
 });
+
+describe('entradas manuales de clasificación (SPEC.md §9.5–§9.7, §9.9)', () => {
+  function mtCurve(): VertebraAnnotation[] {
+    return [
+      makeVertebra('T6', 0, 12),
+      makeVertebra('T7', 30, 18),
+      makeVertebra('T8', 60, 2),
+      makeVertebra('T9', 90, -15),
+      makeVertebra('T10', 120, -22),
+      makeVertebra('T11', 150, -8),
+    ];
+  }
+
+  it('setManualClassificationInputs aplica un parche parcial y recalcula: elegir etiología congénita activa Winter/McMaster', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph(mtCurve()));
+    expect(useAppStore.getState().measurementSet!.classifications.congenital).toBeUndefined();
+
+    useAppStore.getState().setManualClassificationInputs({ etiology: 'congenital', congenitalFormationFailure: { kind: 'partialWedge' } });
+
+    const state = useAppStore.getState();
+    expect(state.manualClassificationInputs.etiology).toBe('congenital');
+    expect(state.measurementSet!.classifications.congenital).toBeDefined();
+    const congenital = state.measurementSet!.classifications.congenital as unknown as { mainType: string | null };
+    expect(congenital.mainType).toBe('I');
+  });
+
+  it('un parche posterior conserva los campos previos no tocados (parche parcial, no reemplazo completo)', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph(mtCurve()));
+    useAppStore.getState().setManualClassificationInputs({ etiology: 'congenital' });
+    useAppStore.getState().setManualClassificationInputs({ congenitalFormationFailure: { kind: 'partialWedge' } });
+
+    const inputs = useAppStore.getState().manualClassificationInputs;
+    expect(inputs.etiology).toBe('congenital'); // sigue puesto del primer parche.
+    expect(inputs.congenitalFormationFailure).toEqual({ kind: 'partialWedge' });
+  });
+
+  it('setAgeYears recalcula: C-EOS aparece/desaparece al cruzar el umbral de 10 años (SPEC.md §9.5)', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph(mtCurve()));
+    useAppStore.getState().setManualClassificationInputs({ etiology: 'idiopathic' });
+    useAppStore.getState().setAgeYears(6);
+    expect(useAppStore.getState().measurementSet!.classifications.ceos).toBeDefined();
+
+    useAppStore.getState().setAgeYears(16);
+    expect(useAppStore.getState().measurementSet!.classifications.ceos).toBeUndefined();
+  });
+});

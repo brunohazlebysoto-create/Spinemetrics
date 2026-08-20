@@ -3,6 +3,7 @@ import { Viewer } from './ui/Viewer/Viewer';
 import { MeasurementsPanel } from './ui/Panels/MeasurementsPanel';
 import { AutoDetectionPanel } from './ui/Panels/AutoDetectionPanel';
 import { ClassificationPanel } from './ui/Panels/ClassificationPanel';
+import { ManualClassificationPanel } from './ui/Panels/ManualClassificationPanel';
 
 export function App(): JSX.Element {
   return (
@@ -16,6 +17,7 @@ export function App(): JSX.Element {
           <AutoDetectionPanel />
           <MeasurementsPanel />
           <ClassificationPanel />
+          <ManualClassificationPanel />
         </aside>
       </div>
     </div>

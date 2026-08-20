@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { recomputeClassifications } from './classificationEngine';
+import { DEFAULT_MANUAL_CLASSIFICATION_INPUTS, recomputeClassifications, type ManualClassificationInputs } from './classificationEngine';
 import type { PelvicAnnotation, Pt, Radiograph, VertebraAnnotation } from '../core/models/types';
+
+function manual(overrides: Partial<ManualClassificationInputs>): ManualClassificationInputs {
+  return { ...DEFAULT_MANUAL_CLASSIFICATION_INPUTS, ...overrides };
+}
 
 function endplate(centerY: number, tiltDeg: number, xCenter = 200, width = 40): [Pt, Pt] {
   const rad = (tiltDeg * Math.PI) / 180;
@@ -152,5 +156,106 @@ describe('recomputeClassifications', () => {
     // Criterio conservador: se usa el mínimo (más corregido) de ambos → no
     // estructural, igual que si sólo existiera el derecho.
     expect(findRegion(lenke.curves, 'PT')).toBe(false);
+  });
+});
+
+describe('recomputeClassifications — clasificadores de entrada manual (SPEC.md §9.5–§9.7, §9.9)', () => {
+  it('sin `manual`, no añade ninguna de las cuatro claves manuales', () => {
+    const result = recomputeClassifications([makeRadiograph(singleMtCurve)], { ageYears: 8 });
+    expect(result.ceos).toBeUndefined();
+    expect(result.congenital).toBeUndefined();
+    expect(result.neuromuscular).toBeUndefined();
+    expect(result.lenkeSilva).toBeUndefined();
+  });
+
+  it('sin etiología elegida, no calcula C-EOS aunque la edad sea <10 (nunca por un valor por defecto)', () => {
+    const result = recomputeClassifications([makeRadiograph(singleMtCurve)], {
+      ageYears: 5,
+      manual: manual({}),
+    });
+    expect(result.ceos).toBeUndefined();
+  });
+
+  it('con etiología y edad <10, calcula C-EOS a partir de la curva mayor de la PA y la cifosis máxima de la lateral', () => {
+    const pa = makeRadiograph(singleMtCurve, 'PA_standing');
+    const lat = makeRadiograph([makeVertebra('T5', 0, 25), makeVertebra('T12', 200, -30)], 'LAT_standing');
+    const result = recomputeClassifications([pa, lat], {
+      ageYears: 6,
+      manual: manual({ etiology: 'idiopathic' }),
+    });
+    expect(result.ceos).toBeDefined();
+    expect(result.ceos!.result).toMatch(/^6 /);
+    const ceos = result.ceos as unknown as { agePrefix: number; etiologyCode: string; curveCategory: number | null; kyphosisCategory: string | null };
+    expect(ceos.agePrefix).toBe(6);
+    expect(ceos.etiologyCode).toBe('I');
+    expect(ceos.curveCategory).not.toBeNull();
+    expect(ceos.kyphosisCategory).not.toBeNull();
+  });
+
+  it('con edad ≥10, no calcula C-EOS aunque haya etiología (SPEC.md §9.5: sólo <10 años)', () => {
+    const result = recomputeClassifications([makeRadiograph(singleMtCurve)], {
+      ageYears: 14,
+      manual: manual({ etiology: 'idiopathic' }),
+    });
+    expect(result.ceos).toBeUndefined();
+  });
+
+  it('etiología congénita activa el clasificador Winter/McMaster, incluso sin curva coronal detectada todavía', () => {
+    const result = recomputeClassifications([makeRadiograph([])], {
+      manual: manual({ etiology: 'congenital', congenitalFormationFailure: { kind: 'partialWedge' } }),
+    });
+    expect(result.congenital).toBeDefined();
+    const congenital = result.congenital as unknown as { mainType: string | null };
+    expect(congenital.mainType).toBe('I');
+  });
+
+  it('etiología distinta de congénita no activa Winter/McMaster', () => {
+    const result = recomputeClassifications([makeRadiograph(singleMtCurve)], {
+      manual: manual({ etiology: 'idiopathic', congenitalFormationFailure: { kind: 'partialWedge' } }),
+    });
+    expect(result.congenital).toBeUndefined();
+  });
+
+  it('etiología neuromuscular activa Lonstein-Akbarnia con los datos manuales', () => {
+    const result = recomputeClassifications([makeRadiograph(singleMtCurve)], {
+      manual: manual({
+        etiology: 'neuromuscular',
+        neuromuscularEtiologyClass: 'neuropathicUpperMotorNeuron',
+        neuromuscularTrunkBalanced: true,
+        neuromuscularDoubleBalancedCurve: true,
+        neuromuscularGmfcs: 4,
+      }),
+    });
+    expect(result.neuromuscular).toBeDefined();
+    const nm = result.neuromuscular as unknown as { lonsteinAkbarniaGroup: string | null; highSeverityGmfcs: boolean };
+    expect(nm.lonsteinAkbarniaGroup).toBe('IA');
+    expect(nm.highSeverityGmfcs).toBe(true);
+  });
+
+  it('lenkeSilvaEnabled activa el árbol guiado independientemente de la etiología', () => {
+    const result = recomputeClassifications([makeRadiograph(singleMtCurve)], {
+      manual: manual({
+        lenkeSilvaEnabled: true,
+        lenkeSilvaChecklist: {
+          anteriorOsteophytes: true,
+          subluxationOver2mm: true,
+          curveMagnitudeAbove30Or45Deg: false,
+          lumbarKyphosis: false,
+          globalImbalance: false,
+          bendingCorrectionBelow30Percent: false,
+        },
+        lenkeSilvaClinicianLevel: 'III',
+      }),
+    });
+    expect(result.lenkeSilva).toBeDefined();
+    const ls = result.lenkeSilva as unknown as { level: string | null };
+    expect(ls.level).toBe('III');
+  });
+
+  it('lenkeSilvaEnabled=false (por defecto) no añade la clave aunque haya checklist marcada', () => {
+    const result = recomputeClassifications([makeRadiograph(singleMtCurve)], {
+      manual: manual({ lenkeSilvaClinicianLevel: 'III' }),
+    });
+    expect(result.lenkeSilva).toBeUndefined();
   });
 });

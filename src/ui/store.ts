@@ -13,7 +13,11 @@ import type { Radiograph, SpinalLevel, VertebraAnnotation } from '../core/models
 import type { Calibration } from '../core/calibration/calibration';
 import { calibrationFromRuler } from '../core/calibration/calibration';
 import { recomputeMeasurementSet, type RecomputeOptions } from './measurementEngine';
-import { recomputeClassifications } from './classificationEngine';
+import {
+  DEFAULT_MANUAL_CLASSIFICATION_INPUTS,
+  recomputeClassifications,
+  type ManualClassificationInputs,
+} from './classificationEngine';
 import type { MeasurementSet } from '../core/models/types';
 import { getLandmarkPoint, setLandmarkPoint, type LandmarkRef } from './landmarkRef';
 import { compareSpinalLevels } from './spinalLevelOrder';
@@ -75,6 +79,12 @@ export interface AppState {
    * `measurementEngine.ts`), aunque el usuario nunca las haya activado en
    * el visor. */
   otherRadiographs: StudyRadiographEntry[];
+
+  /** SPEC.md §9.5–§9.7, §9.9: entradas del clínico para C-EOS/congénita/
+   * neuromuscular/Lenke-Silva. Persisten como el resto de metadatos del
+   * `Study` (`patientRef`, `studyDate`, `ageYears`), no se reinician al
+   * cargar una imagen nueva sobre la misma sesión. */
+  manualClassificationInputs: ManualClassificationInputs;
 
   activeTool: ToolMode;
   /** Nivel elegido antes de empezar a colocar las 4 esquinas de una
@@ -143,6 +153,11 @@ export interface AppState {
   setPatientRef: (patientRef: string) => void;
   setStudyDate: (date: string) => void;
   setAgeYears: (ageYears: number) => void;
+  /** SPEC.md §9.5–§9.7, §9.9: aplica un parche parcial sobre
+   * `manualClassificationInputs` y recalcula — el mismo patrón que el resto
+   * de ediciones en vivo (§10.2), sólo que sobre entradas clínicas en vez
+   * de landmarks. */
+  setManualClassificationInputs: (patch: Partial<ManualClassificationInputs>) => void;
   /** Importa un `Study` completo desde JSON (SPEC.md §12): la primera
    * radiografía pasa a ser la activa, conservando la imagen ya cargada si
    * la hay (el JSON de exportación guarda anotaciones y mediciones, no
@@ -199,17 +214,42 @@ function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
 
-function recompute(
-  radiograph: Radiograph | null,
-  calibration: Calibration | undefined,
-  forcedCobbTerminals: CobbTerminalOverride | null,
-  otherStudyRadiographs: Radiograph[] = [],
-): MeasurementSet | null {
+/**
+ * Todo lo que `recompute` necesita además del `Radiograph` en sí, casi
+ * siempre leído tal cual del estado actual (`recomputeContext`) — sólo se
+ * anula explícitamente el campo que la acción que llama está cambiando
+ * (p. ej. `forcedCobbTerminals` en `cycleCobbTerminal`), en vez de repetir
+ * los otros cuatro campos sin cambios en cada punto de llamada.
+ */
+interface RecomputeContext {
+  calibration: Calibration | undefined;
+  forcedCobbTerminals: CobbTerminalOverride | null;
+  otherRadiographs: StudyRadiographEntry[];
+  ageYears: number;
+  manual: ManualClassificationInputs;
+}
+
+function recomputeContext(get: () => AppState, overrides: Partial<RecomputeContext> = {}): RecomputeContext {
+  const s = get();
+  return {
+    calibration: s.calibration,
+    forcedCobbTerminals: s.forcedCobbTerminals,
+    otherRadiographs: s.otherRadiographs,
+    ageYears: s.ageYears,
+    manual: s.manualClassificationInputs,
+    ...overrides,
+  };
+}
+
+function recompute(radiograph: Radiograph | null, ctx: RecomputeContext): MeasurementSet | null {
   if (!radiograph) return null;
+  const otherStudyRadiographs = ctx.otherRadiographs.map((e) => e.radiograph);
   const options: RecomputeOptions = {
-    ...(calibration ? { calibration } : {}),
-    ...(forcedCobbTerminals ? { forcedCobbTerminals } : {}),
+    ...(ctx.calibration ? { calibration: ctx.calibration } : {}),
+    ...(ctx.forcedCobbTerminals ? { forcedCobbTerminals: ctx.forcedCobbTerminals } : {}),
     ...(otherStudyRadiographs.length > 0 ? { otherStudyRadiographs } : {}),
+    ageYears: ctx.ageYears,
+    manual: ctx.manual,
   };
   return recomputeMeasurementSet(radiograph, options);
 }
@@ -221,6 +261,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   measurementSet: null,
   history: [],
   otherRadiographs: [],
+  manualClassificationInputs: DEFAULT_MANUAL_CLASSIFICATION_INPUTS,
 
   patientRef: '',
   studyDate: new Date().toISOString().slice(0, 10),
@@ -263,7 +304,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       pan: { x: 0, y: 0 },
       windowCenter: image.kind === 'dicom' ? image.defaultWindowCenter : null,
       windowWidth: image.kind === 'dicom' ? image.defaultWindowWidth : null,
-      measurementSet: recompute(radiograph, calibration, null),
+      measurementSet: recompute(radiograph, recomputeContext(get, { calibration, forcedCobbTerminals: null, otherRadiographs: [] })),
       autoDetection: null,
     });
     // SPEC.md §8: "se dispara al importar, sin que el usuario pulse nada."
@@ -294,7 +335,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   applyAutoDetectionAnchor: async (bandIndex, level) => {
-    const { image, radiograph, autoDetection, calibration, history, otherRadiographs } = get();
+    const { image, radiograph, autoDetection, history } = get();
     if (!image || !radiograph || !autoDetection) return;
     set({ autoDetectionLoading: true });
     const result = await runPipelineInWorker(image, radiograph.view, { levelAnchor: { bandIndex, level } });
@@ -303,22 +344,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!result.radiograph) return;
 
     const updated: Radiograph = { ...radiograph, annotations: { ...result.radiograph.annotations } };
-    const otherStudyRadiographs = otherRadiographs.map((e) => e.radiograph);
+    const ctx = recomputeContext(get);
+    const otherStudyRadiographs = ctx.otherRadiographs.map((e) => e.radiograph);
     // `result.measurementSet` (calculado dentro del worker) no conoce el
-    // resto de radiografías del estudio, así que su `classifications` no
-    // incluiría bending/lateral ya añadidos con `addRadiographToStudy` — se
+    // resto de radiografías del estudio ni las entradas manuales del
+    // clínico, así que su `classifications` no las incluiría — se
     // recalculan aquí encima del resto del `MeasurementSet` del pipeline
     // (mediciones, `source: 'auto'`, QC), que sí sigue siendo válido tal cual.
     const measurementSet =
-      result.measurementSet && otherStudyRadiographs.length > 0
+      result.measurementSet && (otherStudyRadiographs.length > 0 || ctx.manual !== DEFAULT_MANUAL_CLASSIFICATION_INPUTS)
         ? {
             ...result.measurementSet,
-            classifications: recomputeClassifications(
-              [updated, ...otherStudyRadiographs],
-              { ...(calibration ? { calibration } : {}) },
-            ),
+            classifications: recomputeClassifications([updated, ...otherStudyRadiographs], {
+              ...(ctx.calibration ? { calibration: ctx.calibration } : {}),
+              ageYears: ctx.ageYears,
+              manual: ctx.manual,
+            }),
           }
-        : (result.measurementSet ?? recompute(updated, calibration, null, otherStudyRadiographs));
+        : (result.measurementSet ?? recompute(updated, ctx));
     set({
       radiograph: updated,
       history: [...history, radiograph],
@@ -328,17 +371,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addRadiographToStudy: (image, radiograph, calibration) => {
-    const { radiograph: activeRadiograph, calibration: activeCalibration, forcedCobbTerminals, otherRadiographs } = get();
+    const { radiograph: activeRadiograph, otherRadiographs } = get();
     const newEntry: StudyRadiographEntry = { image, radiograph, ...(calibration ? { calibration } : {}) };
     const updatedOthers = [...otherRadiographs, newEntry];
     set({
       otherRadiographs: updatedOthers,
-      measurementSet: recompute(
-        activeRadiograph,
-        activeCalibration,
-        forcedCobbTerminals,
-        updatedOthers.map((e) => e.radiograph),
-      ),
+      measurementSet: recompute(activeRadiograph, recomputeContext(get, { otherRadiographs: updatedOthers })),
     });
   },
 
@@ -368,9 +406,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       windowWidth: entry.image.kind === 'dicom' ? entry.image.defaultWindowWidth : null,
       measurementSet: recompute(
         entry.radiograph,
-        entry.calibration,
-        null,
-        updatedOthers.map((e) => e.radiograph),
+        recomputeContext(get, { calibration: entry.calibration, otherRadiographs: updatedOthers, forcedCobbTerminals: null }),
       ),
       autoDetection: null,
     });
@@ -388,12 +424,21 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setPatientRef: (patientRef) => set({ patientRef }),
   setStudyDate: (studyDate) => set({ studyDate }),
-  setAgeYears: (ageYears) => set({ ageYears }),
+  setAgeYears: (ageYears) => {
+    // SPEC.md §9.5: C-EOS sólo aplica <10 años, así que cambiar la edad
+    // puede activar o desactivar esa clasificación — se recalcula igual que
+    // cualquier otra edición en vivo (§10.2).
+    set({ ageYears });
+    set({ measurementSet: recompute(get().radiograph, recomputeContext(get)) });
+  },
+  setManualClassificationInputs: (patch) => {
+    set((s) => ({ manualClassificationInputs: { ...s.manualClassificationInputs, ...patch } }));
+    set({ measurementSet: recompute(get().radiograph, recomputeContext(get)) });
+  },
 
   importStudy: (radiographs) => {
     const [active, ...rest] = radiographs;
     if (!active) return;
-    const { calibration } = get();
     const otherRadiographs: StudyRadiographEntry[] = rest.map((radiograph) => ({ radiograph }));
     set({
       radiograph: active,
@@ -401,12 +446,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       otherRadiographs,
       forcedCobbTerminals: null,
       selectedLandmark: null,
-      measurementSet: recompute(
-        active,
-        calibration,
-        null,
-        otherRadiographs.map((e) => e.radiograph),
-      ),
+      measurementSet: recompute(active, recomputeContext(get, { otherRadiographs, forcedCobbTerminals: null })),
     });
   },
 
@@ -435,11 +475,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const vertebrae = [...withoutExisting, newVertebra].sort((a, b) => compareSpinalLevels(a.level, b.level));
     const updated: Radiograph = { ...radiograph, annotations: { ...radiograph.annotations, vertebrae } };
 
-    const { history, calibration, forcedCobbTerminals, otherRadiographs } = get();
+    const { history } = get();
     set({
       radiograph: updated,
       history: [...history, radiograph],
-      measurementSet: recompute(updated, calibration, forcedCobbTerminals, otherRadiographs.map((e) => e.radiograph)),
+      measurementSet: recompute(updated, recomputeContext(get)),
       activeTool: 'select',
       pendingVertebraLevel: null,
       pendingVertebraPoints: [],
@@ -449,14 +489,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   cancelAddVertebra: () => set({ activeTool: 'select', pendingVertebraLevel: null, pendingVertebraPoints: [] }),
 
   removeVertebra: (level) => {
-    const { radiograph, history, calibration, forcedCobbTerminals, otherRadiographs } = get();
+    const { radiograph, history } = get();
     if (!radiograph) return;
     const vertebrae = radiograph.annotations.vertebrae.filter((v) => v.level !== level);
     const updated: Radiograph = { ...radiograph, annotations: { ...radiograph.annotations, vertebrae } };
     set({
       radiograph: updated,
       history: [...history, radiograph],
-      measurementSet: recompute(updated, calibration, forcedCobbTerminals, otherRadiographs.map((e) => e.radiograph)),
+      measurementSet: recompute(updated, recomputeContext(get)),
       selectedLandmark: null,
     });
   },
@@ -480,12 +520,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     // estado previo al gesto en `beginLandmarkDrag`, así que aquí NO se
     // empuja una entrada nueva por cada fotograma — de lo contrario un solo
     // arrastre de ratón generaría cientos de pasos de "deshacer".
-    const { radiograph, calibration, forcedCobbTerminals, otherRadiographs } = get();
+    const { radiograph } = get();
     if (!radiograph) return;
     const updated = setLandmarkPoint(radiograph, ref, point);
     set({
       radiograph: updated,
-      measurementSet: recompute(updated, calibration, forcedCobbTerminals, otherRadiographs.map((e) => e.radiograph)),
+      measurementSet: recompute(updated, recomputeContext(get)),
     });
   },
 
@@ -507,15 +547,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setCalibration: (calibration) => {
-    const { radiograph, forcedCobbTerminals, otherRadiographs } = get();
+    const { radiograph } = get();
     set({
       calibration,
-      measurementSet: recompute(radiograph, calibration, forcedCobbTerminals, otherRadiographs.map((e) => e.radiograph)),
+      measurementSet: recompute(radiograph, recomputeContext(get, { calibration })),
     });
   },
 
   cycleCobbTerminal: (role) => {
-    const { radiograph, forcedCobbTerminals, measurementSet, calibration, otherRadiographs } = get();
+    const { radiograph, forcedCobbTerminals, measurementSet } = get();
     if (!radiograph || radiograph.annotations.vertebrae.length === 0) return;
     const levels = [...radiograph.annotations.vertebrae.map((v) => v.level)].sort(compareSpinalLevels);
 
@@ -532,26 +572,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({
       forcedCobbTerminals: next,
-      measurementSet: recompute(radiograph, calibration, next, otherRadiographs.map((e) => e.radiograph)),
+      measurementSet: recompute(radiograph, recomputeContext(get, { forcedCobbTerminals: next })),
     });
   },
 
   recalcFromScratch: () => {
-    const { radiograph, calibration, otherRadiographs } = get();
+    const { radiograph } = get();
     set({
       forcedCobbTerminals: null,
-      measurementSet: recompute(radiograph, calibration, null, otherRadiographs.map((e) => e.radiograph)),
+      measurementSet: recompute(radiograph, recomputeContext(get, { forcedCobbTerminals: null })),
     });
   },
 
   undo: () => {
-    const { history, calibration, forcedCobbTerminals, otherRadiographs } = get();
+    const { history } = get();
     if (history.length === 0) return;
     const previous = history[history.length - 1]!;
     set({
       radiograph: previous,
       history: history.slice(0, -1),
-      measurementSet: recompute(previous, calibration, forcedCobbTerminals, otherRadiographs.map((e) => e.radiograph)),
+      measurementSet: recompute(previous, recomputeContext(get)),
     });
   },
 

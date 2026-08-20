@@ -19,7 +19,7 @@ import { measurePelvicObliquity, measurePelvicParameters, measurePiLlMismatch } 
 import { DEFAULT_CONVENTIONS, type Conventions } from '../core/config/conventions';
 import type { Calibration } from '../core/calibration/calibration';
 import type { MeasurementSet, Radiograph, SpinalLevel } from '../core/models/types';
-import { recomputeClassifications } from './classificationEngine';
+import { recomputeClassifications, type ManualClassificationInputs } from './classificationEngine';
 
 export interface RecomputeOptions {
   calibration?: Calibration;
@@ -32,6 +32,12 @@ export interface RecomputeOptions {
    * de estudio, no de radiografía única — `classificationEngine.ts` las
    * usa para Lenke/SRS-Schwab/Roussouly cuando existen. */
   otherStudyRadiographs?: Radiograph[];
+  /** SPEC.md §9.5: C-EOS sólo aplica por debajo de 10 años. */
+  ageYears?: number;
+  /** SPEC.md §9.5–§9.7, §9.9: entradas del clínico para C-EOS/congénita/
+   * neuromuscular/Lenke-Silva, que `classificationEngine.ts` no puede
+   * derivar de landmarks. */
+  manual?: ManualClassificationInputs;
 }
 
 /**
@@ -79,6 +85,8 @@ export function recomputeMeasurementSet(radiograph: Radiograph, options: Recompu
   const classifications = recomputeClassifications([radiograph, ...(options.otherStudyRadiographs ?? [])], {
     ...(options.calibration ? { calibration: options.calibration } : {}),
     conventions,
+    ...(options.ageYears !== undefined ? { ageYears: options.ageYears } : {}),
+    ...(options.manual ? { manual: options.manual } : {}),
   });
 
   return {
