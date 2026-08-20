@@ -30,7 +30,7 @@ function makeSyntheticSpine(
 describe('detectVertebraBands', () => {
   it('detecta aproximadamente el número de cuerpos vertebrales sintéticos', () => {
     const image = makeSyntheticSpine(100, 400, 6, 25, 8, 50);
-    const bands = detectVertebraBands(image, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15 });
+    const bands = detectVertebraBands(image, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15, view: 'PA_standing' });
     // Tolerancia: el heurístico no tiene por qué acertar exactamente, pero
     // debe acercarse al número real de cuerpos (6).
     expect(bands.length).toBeGreaterThanOrEqual(4);
@@ -39,7 +39,7 @@ describe('detectVertebraBands', () => {
 
   it('nunca reporta confianza por encima del techo deliberado (0.5)', () => {
     const image = makeSyntheticSpine(100, 400, 6, 25, 8, 50);
-    const bands = detectVertebraBands(image, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15 });
+    const bands = detectVertebraBands(image, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15, view: 'PA_standing' });
     for (const band of bands) {
       expect(band.confidence.value).toBeLessThanOrEqual(0.5);
       expect(band.confidence.value).toBeGreaterThanOrEqual(0);
@@ -48,7 +48,7 @@ describe('detectVertebraBands', () => {
 
   it('da más confianza a un patrón regular que a uno irregular', () => {
     const regular = makeSyntheticSpine(100, 400, 6, 25, 8, 50);
-    const regularBands = detectVertebraBands(regular, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15 });
+    const regularBands = detectVertebraBands(regular, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15, view: 'PA_standing' });
     const avgRegularConfidence = regularBands.reduce((s, b) => s + b.confidence.value, 0) / regularBands.length;
 
     // Imagen con ruido uniforme aleatorio: sin patrón periódico real.
@@ -59,7 +59,7 @@ describe('detectVertebraBands', () => {
       noisyData[i] = (seed % 1000) / 1000;
     }
     const noisy: GrayscaleImage = { width: 100, height: 400, data: noisyData };
-    const noisyBands = detectVertebraBands(noisy, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15 });
+    const noisyBands = detectVertebraBands(noisy, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15, view: 'PA_standing' });
     const avgNoisyConfidence = noisyBands.length > 0 ? noisyBands.reduce((s, b) => s + b.confidence.value, 0) / noisyBands.length : 0;
 
     expect(avgRegularConfidence).toBeGreaterThan(avgNoisyConfidence);
@@ -67,7 +67,33 @@ describe('detectVertebraBands', () => {
 
   it('devuelve un array vacío para una ROI degenerada', () => {
     const image = makeSyntheticSpine(100, 400, 6, 25, 8, 50);
-    expect(detectVertebraBands(image, { x0: 50, y0: 50, x1: 50, y1: 80 }, { minRowSpacing: 15 })).toEqual([]);
+    expect(detectVertebraBands(image, { x0: 50, y0: 50, x1: 50, y1: 80 }, { minRowSpacing: 15, view: 'PA_standing' })).toEqual([]);
+  });
+});
+
+describe('detectVertebraBands — vista lateral (Etapa 6, SPEC.md §8)', () => {
+  it('nunca reporta confianza por encima del techo, más bajo que en PA (0.35 < 0.5)', () => {
+    const image = makeSyntheticSpine(100, 400, 6, 25, 8, 50);
+    const paBands = detectVertebraBands(image, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15, view: 'PA_standing' });
+    const latBands = detectVertebraBands(image, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15, view: 'LAT_standing' });
+
+    for (const band of latBands) {
+      expect(band.confidence.value).toBeLessThanOrEqual(0.35);
+      expect(band.confidence.value).toBeGreaterThanOrEqual(0);
+    }
+
+    // Mismo heurístico, misma imagen: sólo cambia el techo por proyección
+    // (SPEC.md §8 Etapa 6, "rendimiento esperable inferior" en lateral por
+    // la superposición costal y de hombros) — nunca la misma confianza.
+    const avgPa = paBands.reduce((s, b) => s + b.confidence.value, 0) / paBands.length;
+    const avgLat = latBands.reduce((s, b) => s + b.confidence.value, 0) / latBands.length;
+    expect(avgLat).toBeLessThan(avgPa);
+  });
+
+  it('sin proyección confirmada usa el mismo techo que PA (el resultado se descarta más arriba de todos modos)', () => {
+    const image = makeSyntheticSpine(100, 400, 6, 25, 8, 50);
+    const bands = detectVertebraBands(image, { x0: 0, y0: 0, x1: 100, y1: 400 }, { minRowSpacing: 15, view: null });
+    for (const band of bands) expect(band.confidence.value).toBeLessThanOrEqual(0.5);
   });
 });
 

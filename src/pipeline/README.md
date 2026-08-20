@@ -17,7 +17,7 @@ en vez de quedar sin construir.
 | 3 — Segmentación vertebral | Heurístico, confianza acotada a 0.5 | `vertebraDetector.ts`: picos del perfil de intensidad por fila. SPEC.md exige aquí un modelo entrenado (U-Net/Mask R-CNN); sin él, este heurístico intenta algo real en vez de nada, pero nunca se presenta como equivalente |
 | 4 — Etiquetado de niveles | Nunca fabricado | `levelLabeling.ts`: exige un ancla explícita (qué banda es qué nivel). Sin segmentación sacra real no hay forma de anclar automáticamente — SPEC.md prohíbe adivinar el recuento |
 | 5 — Landmarks pélvicos | Real (cabezas femorales) | `pelvicDetector.ts` + `houghCircle.ts`: Hough circular por gradiente — el método que SPEC.md nombra explícitamente como válido, no un sustituto. El platillo de S1 (que sí exige segmentación sacra) nunca se fabrica |
-| 6 — Vista lateral | No implementado | Fuera de alcance de esta iteración |
+| 6 — Vista lateral | Heurístico, confianza acotada a 0.35 (más baja que Etapa 3) | Mismo heurístico de `vertebraDetector.ts`, con `view: 'LAT_standing'`: SPEC.md pide aquí "un modelo separado para las esquinas en sagital" con "rendimiento esperable inferior" — sin ese modelo (mismo motivo que Etapa 3), se reutiliza el detector de picos del perfil de intensidad, pero con un techo de confianza más bajo que refleja explícitamente la superposición costal y de hombros que SPEC.md ya anticipa |
 | 7 — Cálculo y clasificación | Real | `runPipeline.ts` reutiliza `ui/measurementEngine.ts::recomputeMeasurementSet` — la MISMA función que la anotación manual, sin ruta alternativa |
 | 8 — Control de calidad | Real | `qualityControl.ts`, tabla de SPEC.md §8.1 |
 
@@ -69,9 +69,13 @@ Playwright observando que el navegador efectivamente crea el Worker.
 
 ## Pendiente explícito (no ocultado)
 
-- **Vista lateral (Etapa 6)** no implementada.
 - **Reemplazo por un modelo real**: en cuanto exista un checkpoint
-  entrenado (`training/`) y su exportación a ONNX, la Etapa 3 debería
-  sustituirse por inferencia real detrás de la misma interfaz de
+  entrenado (`training/`) y su exportación a ONNX, las Etapas 3 y 6
+  deberían sustituirse por inferencia real detrás de la misma interfaz de
   `vertebraDetector.ts` — el resto del pipeline (preprocesado, QC, motor de
-  cálculo) no necesitaría cambios.
+  cálculo) no necesitaría cambios. Hasta entonces, la Etapa 6 comparte el
+  heurístico de picos del perfil de intensidad con la Etapa 3, sólo con un
+  techo de confianza más bajo (`MAX_CONFIDENCE_LATERAL = 0.35` en
+  `vertebraDetector.ts`) que refleja la superposición costal y de hombros
+  que SPEC.md ya anticipa para esta proyección — nunca la misma confianza
+  que en PA.

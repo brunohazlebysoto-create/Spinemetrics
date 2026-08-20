@@ -10,17 +10,39 @@
  * radiografía AP/lateral, así que producen máximos locales periódicos).
  *
  * Es sustancialmente menos fiable que un modelo entrenado — su confianza
- * está deliberadamente acotada bajo (`MAX_CONFIDENCE`) para que el control
- * de calidad de SPEC.md §8.1 ("confianza <0.7 → no fiable, excluir de la
- * selección de terminales") la trate como lo que es. Nunca se presenta como
- * equivalente a una segmentación real.
+ * está deliberadamente acotada bajo (`MAX_CONFIDENCE_PA`/`MAX_CONFIDENCE_LATERAL`)
+ * para que el control de calidad de SPEC.md §8.1 ("confianza <0.7 → no
+ * fiable, excluir de la selección de terminales") la trate como lo que es.
+ * Nunca se presenta como equivalente a una segmentación real.
+ *
+ * Etapa 6 (vista lateral, SPEC.md §8: "Modelo separado para las esquinas en
+ * sagital. Rendimiento esperable inferior por la superposición costal y de
+ * hombros") pide explícitamente un modelo propio para la vista lateral, que
+ * tampoco existe (mismo motivo que la Etapa 3: sin datos de entrenamiento,
+ * ver `training/README.md`). El mismo heurístico de picos del perfil de
+ * intensidad por fila sigue siendo aplicable — la columna sigue produciendo
+ * una modulación de densidad periódica a lo largo de su eje craneocaudal en
+ * cualquier proyección — pero SPEC.md ya documenta que aquí el rendimiento
+ * es peor, así que el techo de confianza para `LAT_standing` es
+ * deliberadamente más bajo que para PA, no el mismo.
  */
+import type { RadiographView } from '../core/models/types';
 import type { AffineTransform2D, DetectionConfidence, GrayscaleImage, SpineRoi } from './types';
 import { applyAffineInverse } from './types';
 
 /** Ningún heurístico sin entrenar debería reportar más confianza que esto,
  * cualquiera que sea la regularidad de sus picos — un techo deliberado. */
-const MAX_CONFIDENCE = 0.5;
+const MAX_CONFIDENCE_PA = 0.5;
+
+/** Techo para `LAT_standing`, por debajo del de PA: SPEC.md §8 Etapa 6
+ * afirma explícitamente un "rendimiento esperable inferior" en vista lateral
+ * por la superposición costal y de hombros — el mismo heurístico no merece
+ * la misma confianza máxima en ambas proyecciones. */
+const MAX_CONFIDENCE_LATERAL = 0.35;
+
+function maxConfidenceForView(view: RadiographView | null): number {
+  return view === 'LAT_standing' ? MAX_CONFIDENCE_LATERAL : MAX_CONFIDENCE_PA;
+}
 
 export interface VertebraBandCandidate {
   /** Fila central del cuerpo candidato, en el espacio de `image` (remuestreado). */
@@ -111,6 +133,14 @@ export interface DetectVertebraBandsOptions {
    * consecutivos, en píxeles del espacio remuestreado. */
   minRowSpacing: number;
   smoothingWindow?: number;
+  /** Determina el techo de confianza (Etapa 6, SPEC.md §8: "rendimiento
+   * esperable inferior" en lateral) — obligatorio para no asignar en
+   * silencio el techo más alto (PA) a una proyección sin determinar. `null`
+   * cuando la proyección todavía no se confirmó usa el mismo techo que PA:
+   * el pipeline ya descarta ese resultado (`measurementSet: null`) hasta
+   * que se confirme la vista, así que el techo exacto no afecta ningún
+   * cálculo mostrado — sólo el máximo teórico de esas bandas descartables. */
+  view: RadiographView | null;
 }
 
 /**
@@ -153,6 +183,8 @@ export function detectVertebraBands(image: GrayscaleImage, roi: SpineRoi, option
     return { top, bottom };
   });
   const meanHeight = heights.reduce((a, b) => a + b, 0) / heights.length;
+  const maxConfidence = maxConfidenceForView(options.view);
+  const viewLabel = options.view ?? 'sin determinar';
 
   return peaks.map((peak, idx) => {
     const bounds = boundsPerPeak[idx]!;
@@ -168,9 +200,9 @@ export function detectVertebraBands(image: GrayscaleImage, roi: SpineRoi, option
       colLeft: x0,
       colRight: x1,
       confidence: {
-        value: Math.min(MAX_CONFIDENCE, rawScore * MAX_CONFIDENCE),
+        value: Math.min(maxConfidence, rawScore * maxConfidence),
         reason:
-          `Heurístico sin modelo entrenado (techo ${MAX_CONFIDENCE}): prominencia relativa ${prominenceScore.toFixed(2)}, ` +
+          `Heurístico sin modelo entrenado (proyección ${viewLabel}, techo ${maxConfidence}): prominencia relativa ${prominenceScore.toFixed(2)}, ` +
           `regularidad de altura ${regularityScore.toFixed(2)} frente a la media de ${heights.length} candidatos.`,
       },
     };

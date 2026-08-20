@@ -89,7 +89,11 @@ export function runAutomaticPipeline(source: ImageSource, viewHint: RadiographVi
   const { image: resampled, transform } = resampleWithAffine(enhanced, roi, targetWidth, targetHeight);
 
   const minRowSpacing = options.minRowSpacing ?? Math.round(targetHeight * DEFAULT_MIN_ROW_SPACING_FRACTION);
-  const detectedBands = detectVertebraBands(resampled, { x0: 0, y0: 0, x1: targetWidth, y1: targetHeight }, { minRowSpacing });
+  const detectedBands = detectVertebraBands(
+    resampled,
+    { x0: 0, y0: 0, x1: targetWidth, y1: targetHeight },
+    { minRowSpacing, view: viewClassification.view },
+  );
 
   const femoralHeadRadius = options.femoralHeadRadius ?? {
     min: Math.round(targetWidth * DEFAULT_FEMORAL_HEAD_RADIUS_FRACTION.min),

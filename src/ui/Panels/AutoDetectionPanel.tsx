@@ -65,6 +65,13 @@ export function AutoDetectionPanel(): JSX.Element | null {
         segmentación real.
       </p>
 
+      {autoDetection.viewClassification.view === 'LAT_standing' && (
+        <p style={{ margin: '0 0 6px', color: '#fbbf24' }}>
+          Vista lateral (SPEC.md §8 Etapa 6): rendimiento esperable inferior a la vista PA por la superposición
+          costal y de hombros — el techo de confianza aquí es más bajo (0.35 en vez de 0.5).
+        </p>
+      )}
+
       <details style={{ marginBottom: 8 }}>
         <summary style={{ cursor: 'pointer', color: '#8a8f98' }}>Control de calidad (SPEC.md §8.1)</summary>
         <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>

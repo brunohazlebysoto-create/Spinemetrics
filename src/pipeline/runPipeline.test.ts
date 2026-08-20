@@ -87,4 +87,33 @@ describe('runAutomaticPipeline', () => {
       expect(v.confidence!).toBeLessThanOrEqual(0.5);
     }
   });
+
+  describe('vista lateral (Etapa 6, SPEC.md §8)', () => {
+    it('con viewHint LAT_standing y ancla, calcula un measurementSet automático con confianza acotada más baja que PA', () => {
+      const image = makeSyntheticSpineDicom(200, 800, 8, 40, 12, 100);
+      const result = runAutomaticPipeline(image, 'LAT_standing', {
+        levelAnchor: { bandIndex: 0, level: 'T4' },
+      });
+
+      expect(result.viewClassification.view).toBe('LAT_standing');
+      expect(result.levelLabeling.uncertain).toBe(false);
+      expect(result.radiograph).not.toBeNull();
+      expect(result.measurementSet).not.toBeNull();
+      expect(result.measurementSet!.source).toBe('auto');
+      expect(result.measurementSet!.modelVersion).toBe('heuristic-bands-v1');
+      for (const v of result.radiograph!.annotations.vertebrae) {
+        expect(v.confidence!).toBeLessThanOrEqual(0.35);
+      }
+    });
+
+    it('la misma imagen produce menos confianza en LAT_standing que en PA_standing', () => {
+      const image = makeSyntheticSpineDicom(200, 800, 8, 40, 12, 100);
+      const pa = runAutomaticPipeline(image, 'PA_standing', { levelAnchor: { bandIndex: 0, level: 'T4' } });
+      const lat = runAutomaticPipeline(image, 'LAT_standing', { levelAnchor: { bandIndex: 0, level: 'T4' } });
+
+      const avgPa = pa.detectedBands.reduce((s, b) => s + b.confidence.value, 0) / pa.detectedBands.length;
+      const avgLat = lat.detectedBands.reduce((s, b) => s + b.confidence.value, 0) / lat.detectedBands.length;
+      expect(avgLat).toBeLessThan(avgPa);
+    });
+  });
 });
