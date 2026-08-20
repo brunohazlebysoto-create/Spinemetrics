@@ -7,7 +7,7 @@
  */
 import type { MeasurementResult, MeasurementUnit } from '../../core/models/types';
 
-const UNIT_SUFFIX: Record<MeasurementUnit, string> = {
+export const UNIT_SUFFIX: Record<MeasurementUnit, string> = {
   deg: '°',
   mm: ' mm',
   ratio: '%',

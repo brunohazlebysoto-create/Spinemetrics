@@ -34,6 +34,7 @@ export function StudyIO(): JSX.Element {
   const setStudyDate = useAppStore((s) => s.setStudyDate);
   const setAgeYears = useAppStore((s) => s.setAgeYears);
   const importStudy = useAppStore((s) => s.importStudy);
+  const loadPriorStudies = useAppStore((s) => s.loadPriorStudies);
   const [status, setStatus] = useState<string | null>(null);
 
   /** SPEC.md §5: un `Study` puede tener varias radiografías (bending,
@@ -66,6 +67,9 @@ export function StudyIO(): JSX.Element {
     const localId = await stableLocalId(study, radiograph!.id);
     await saveStudy({ ...study, localId });
     setStatus('Guardado localmente.');
+    // SPEC.md §10.4: que quede disponible como estudio índice sin tener que
+    // pulsar además "Buscar estudios previos" en el panel de seguimiento.
+    void loadPriorStudies();
   }
 
   async function handleExport(): Promise<void> {

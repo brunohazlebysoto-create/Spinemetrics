@@ -1,13 +1,17 @@
+import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useAppStore } from './store';
+import { recomputeMeasurementSet } from './measurementEngine';
+import { db, saveStudy, type StoredStudy } from '../storage/db';
 import type { CobbMeasurement } from '../core/measurements/cobb';
 import type { Radiograph, VertebraAnnotation } from '../core/models/types';
 import type { DicomImageSource, RasterImageSource } from '../imaging/types';
 
 const initialState = useAppStore.getState();
 
-beforeEach(() => {
+beforeEach(async () => {
   useAppStore.setState(initialState, true);
+  await db.studies.clear();
 });
 
 function makeImage(): RasterImageSource {
@@ -434,5 +438,108 @@ describe('entradas manuales de clasificación (SPEC.md §9.5–§9.7, §9.9)', (
 
     useAppStore.getState().setAgeYears(16);
     expect(useAppStore.getState().measurementSet!.classifications.ceos).toBeUndefined();
+  });
+});
+
+describe('seguimiento seriado (SPEC.md §10.4)', () => {
+  function curveT5T12(): VertebraAnnotation[] {
+    return [makeVertebra('T5', 0, 20), makeVertebra('T12', 200, -20)];
+  }
+
+  // Terminales "naturales" (mayor inclinación de cada lado) son T3/L1, no
+  // T5/T12: sirve para comprobar que heredar del estudio índice realmente
+  // sustituye la selección automática, en vez de coincidir con ella.
+  function widerCurve(): VertebraAnnotation[] {
+    return [
+      makeVertebra('T3', 0, 25),
+      makeVertebra('T5', 60, 20),
+      makeVertebra('T8', 150, 2),
+      makeVertebra('T12', 260, -20),
+      makeVertebra('L1', 320, -25),
+    ];
+  }
+
+  async function seedIndexStudy(patientRef: string, localId: string, terminalsCurve: VertebraAnnotation[]): Promise<StoredStudy> {
+    const radiograph = makeRadiograph(terminalsCurve);
+    const measurementSet = recomputeMeasurementSet(radiograph);
+    const study: StoredStudy = {
+      localId,
+      patientRef,
+      date: '2025-01-01',
+      ageYears: 12,
+      radiographs: [radiograph],
+      measurementSets: [measurementSet],
+    };
+    await saveStudy(study);
+    return study;
+  }
+
+  it('loadPriorStudies consulta los estudios guardados del mismo seudónimo, nunca los de otro', async () => {
+    useAppStore.getState().setPatientRef('SM-test1');
+    await seedIndexStudy('SM-test1', 'index-1', curveT5T12());
+    await seedIndexStudy('SM-other', 'index-2', curveT5T12());
+
+    await useAppStore.getState().loadPriorStudies();
+    const prior = useAppStore.getState().priorStudies;
+    expect(prior).toHaveLength(1);
+    expect(prior[0]!.localId).toBe('index-1');
+  });
+
+  it('selectIndexStudy hereda las vértebras terminales del Cobb del estudio índice (docs/OPEN_QUESTIONS.md #2, regla obligatoria)', async () => {
+    await seedIndexStudy('SM-test2', 'index-1', curveT5T12());
+
+    // loadImage reinicia priorStudies/selectedIndexStudyId (empieza un
+    // estudio nuevo): patientRef y loadPriorStudies van DESPUÉS.
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph(widerCurve()));
+    useAppStore.getState().setPatientRef('SM-test2');
+    await useAppStore.getState().loadPriorStudies();
+
+    const beforeCobb = useAppStore.getState().measurementSet!.measurements.cobb as CobbMeasurement;
+    expect([beforeCobb.cranialVertebra, beforeCobb.caudalVertebra]).toEqual(['T3', 'L1']); // selección automática, no la heredada.
+
+    useAppStore.getState().selectIndexStudy('index-1');
+
+    const state = useAppStore.getState();
+    expect(state.selectedIndexStudyId).toBe('index-1');
+    expect(state.forcedCobbTerminals).toEqual({ cranial: 'T5', caudal: 'T12' });
+    const afterCobb = state.measurementSet!.measurements.cobb as CobbMeasurement;
+    expect(afterCobb.cranialVertebra).toBe('T5');
+    expect(afterCobb.caudalVertebra).toBe('T12');
+  });
+
+  it('selectIndexStudy(null) limpia la selección sin tocar una terminal ya forzada a mano', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph(widerCurve()));
+    useAppStore.getState().cycleCobbTerminal('cranial');
+    const manualTerminals = useAppStore.getState().forcedCobbTerminals;
+    expect(manualTerminals).not.toBeNull();
+
+    useAppStore.getState().selectIndexStudy(null);
+    expect(useAppStore.getState().selectedIndexStudyId).toBeNull();
+    expect(useAppStore.getState().forcedCobbTerminals).toEqual(manualTerminals);
+  });
+
+  it('getPaStandingMeasurementSet devuelve el measurementSet activo cuando la PA es la radiografía activa', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph(curveT5T12()));
+    expect(useAppStore.getState().getPaStandingMeasurementSet()).toBe(useAppStore.getState().measurementSet);
+  });
+
+  it('getPaStandingMeasurementSet calcula el de la PA aunque no sea la radiografía activa', () => {
+    const pa: Radiograph = { id: 'pa', view: 'PA_standing', annotations: { vertebrae: curveT5T12() } };
+    const lat: Radiograph = { id: 'lat', view: 'LAT_standing', annotations: { vertebrae: [] } };
+    useAppStore.getState().loadImage(makeImage(), pa);
+    useAppStore.getState().addRadiographToStudy(makeImage(), lat);
+    useAppStore.getState().switchActiveRadiograph(0);
+
+    expect(useAppStore.getState().radiograph!.view).toBe('LAT_standing');
+    const paSet = useAppStore.getState().getPaStandingMeasurementSet();
+    expect(paSet).not.toBeNull();
+    const cobb = paSet!.measurements.cobb as CobbMeasurement;
+    expect(cobb.cranialVertebra).toBe('T5');
+    expect(cobb.caudalVertebra).toBe('T12');
+  });
+
+  it('getPaStandingMeasurementSet devuelve null si el estudio no tiene ninguna PA_standing', () => {
+    useAppStore.getState().loadImage(makeImage(), { id: 'lat', view: 'LAT_standing', annotations: { vertebrae: [] } });
+    expect(useAppStore.getState().getPaStandingMeasurementSet()).toBeNull();
   });
 });

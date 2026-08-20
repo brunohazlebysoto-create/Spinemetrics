@@ -24,6 +24,8 @@ import { compareSpinalLevels } from './spinalLevelOrder';
 import type { ImageSource } from '../imaging/types';
 import type { PipelineResult } from '../pipeline/runPipeline';
 import { runPipelineInWorker } from '../pipeline/workerClient';
+import { listStudiesForPatient, type StoredStudy } from '../storage/db';
+import { inheritedCobbTerminals, paStandingMeasurementSet } from './followUp';
 
 export type ToolMode = 'select' | 'addVertebra' | 'ruler';
 
@@ -85,6 +87,13 @@ export interface AppState {
    * `Study` (`patientRef`, `studyDate`, `ageYears`), no se reinician al
    * cargar una imagen nueva sobre la misma sesión. */
   manualClassificationInputs: ManualClassificationInputs;
+
+  /** SPEC.md §10.4 "Seguimiento seriado": estudios previos guardados del
+   * mismo `patientRef` (más recientes primero), y cuál de ellos actúa como
+   * estudio índice de la comparación en curso. `null` significa "sin
+   * comparar" — no un estudio índice sin elegir todavía por error. */
+  priorStudies: StoredStudy[];
+  selectedIndexStudyId: string | null;
 
   activeTool: ToolMode;
   /** Nivel elegido antes de empezar a colocar las 4 esquinas de una
@@ -158,6 +167,26 @@ export interface AppState {
    * de ediciones en vivo (§10.2), sólo que sobre entradas clínicas en vez
    * de landmarks. */
   setManualClassificationInputs: (patch: Partial<ManualClassificationInputs>) => void;
+
+  /** SPEC.md §10.4: consulta los estudios guardados con el mismo
+   * `patientRef` (más recientes primero) y los deja en `priorStudies`. No
+   * se llama automáticamente (evita golpear IndexedDB en cada tecleo del
+   * seudónimo) — la UI lo dispara con un botón explícito. */
+  loadPriorStudies: () => Promise<void>;
+  /** SPEC.md §10.4: elige qué `priorStudies` entry es el estudio índice de
+   * la comparación en curso. Si la radiografía activa es la `PA_standing`
+   * y el estudio índice tiene un Cobb con ambas terminales determinadas,
+   * las hereda como `forcedCobbTerminals` (regla obligatoria de
+   * `docs/OPEN_QUESTIONS.md` #2) y recalcula. `null` limpia la selección
+   * sin tocar ninguna terminal forzada que el usuario ya haya fijado a
+   * mano. */
+  selectIndexStudy: (localId: string | null) => void;
+  /** El `MeasurementSet` de la radiografía `PA_standing` del estudio en
+   * curso, esté o no activa en el visor — SPEC.md §10.4 sólo compara el
+   * Cobb de esa proyección (`docs/OPEN_QUESTIONS.md` #5). Se recalcula al
+   * vuelo si la `PA_standing` no es la activa; `null` si el estudio no
+   * tiene ninguna. */
+  getPaStandingMeasurementSet: () => MeasurementSet | null;
   /** Importa un `Study` completo desde JSON (SPEC.md §12): la primera
    * radiografía pasa a ser la activa, conservando la imagen ya cargada si
    * la hay (el JSON de exportación guarda anotaciones y mediciones, no
@@ -262,6 +291,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   history: [],
   otherRadiographs: [],
   manualClassificationInputs: DEFAULT_MANUAL_CLASSIFICATION_INPUTS,
+  priorStudies: [],
+  selectedIndexStudyId: null,
 
   patientRef: '',
   studyDate: new Date().toISOString().slice(0, 10),
@@ -293,8 +324,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       calibration,
       history: [],
       // Cargar una imagen nueva empieza un `Study` nuevo: cualquier
-      // radiografía adicional del estudio anterior queda descartada.
+      // radiografía adicional del estudio anterior queda descartada, y la
+      // comparación de seguimiento seriado (SPEC.md §10.4) con ella.
       otherRadiographs: [],
+      priorStudies: [],
+      selectedIndexStudyId: null,
       forcedCobbTerminals: null,
       selectedLandmark: null,
       activeTool: 'select',
@@ -434,6 +468,57 @@ export const useAppStore = create<AppState>((set, get) => ({
   setManualClassificationInputs: (patch) => {
     set((s) => ({ manualClassificationInputs: { ...s.manualClassificationInputs, ...patch } }));
     set({ measurementSet: recompute(get().radiograph, recomputeContext(get)) });
+  },
+
+  loadPriorStudies: async () => {
+    const { patientRef } = get();
+    if (!patientRef) {
+      set({ priorStudies: [] });
+      return;
+    }
+    const studies = await listStudiesForPatient(patientRef);
+    // Un seudónimo distinto pudo teclearse mientras la consulta estaba en
+    // vuelo — descartar el resultado obsoleto en vez de pisar el actual.
+    if (get().patientRef !== patientRef) return;
+    set({ priorStudies: studies });
+  },
+
+  selectIndexStudy: (localId) => {
+    set({ selectedIndexStudyId: localId });
+    if (localId === null) return;
+
+    const { priorStudies, radiograph } = get();
+    if (!radiograph || radiograph.view !== 'PA_standing') return;
+    const indexStudy = priorStudies.find((s) => s.localId === localId);
+    if (!indexStudy) return;
+    const indexMeasurementSet = paStandingMeasurementSet(indexStudy);
+    if (!indexMeasurementSet) return;
+    const terminals = inheritedCobbTerminals(indexMeasurementSet);
+    if (!terminals) return; // Nunca se fabrica un par de terminales si el estudio índice no tiene Cobb.
+
+    set({
+      forcedCobbTerminals: terminals,
+      measurementSet: recompute(radiograph, recomputeContext(get, { forcedCobbTerminals: terminals })),
+    });
+  },
+
+  getPaStandingMeasurementSet: () => {
+    const state = get();
+    if (!state.radiograph) return null;
+    if (state.radiograph.view === 'PA_standing') return state.measurementSet;
+
+    const entry = state.otherRadiographs.find((e) => e.radiograph.view === 'PA_standing');
+    if (!entry) return null;
+    // La activa entra como "otra radiografía del estudio" a efectos de
+    // clasificación de esta PA, igual que cualquier `otherRadiographs`.
+    const siblingEntries: StudyRadiographEntry[] = [
+      { radiograph: state.radiograph, ...(state.calibration ? { calibration: state.calibration } : {}) },
+      ...state.otherRadiographs.filter((e) => e !== entry),
+    ];
+    return recompute(
+      entry.radiograph,
+      recomputeContext(get, { calibration: entry.calibration, otherRadiographs: siblingEntries, forcedCobbTerminals: null }),
+    );
   },
 
   importStudy: (radiographs) => {
