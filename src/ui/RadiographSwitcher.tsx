@@ -11,18 +11,7 @@ import { useAppStore } from './store';
 import { loadDicomFile } from '../imaging/loadDicom';
 import { loadRasterImage } from '../imaging/loadRasterImage';
 import type { Radiograph, RadiographView } from '../core/models/types';
-
-const VIEW_LABELS: Record<RadiographView, string> = {
-  PA_standing: 'PA de pie',
-  LAT_standing: 'Lateral de pie',
-  PA_supine: 'PA en decúbito',
-  BEND_left: 'Bending izquierdo',
-  BEND_right: 'Bending derecho',
-  FULCRUM: 'Fulcrum',
-  TRACTION: 'Tracción',
-  HAND: 'Mano (madurez)',
-  PELVIS: 'Pelvis',
-};
+import { RADIOGRAPH_VIEW_LABELS as VIEW_LABELS } from './radiographViewLabels';
 
 function isDicomFile(file: File): boolean {
   return file.name.toLowerCase().endsWith('.dcm') || file.type === 'application/dicom';

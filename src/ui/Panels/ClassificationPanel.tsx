@@ -7,26 +7,13 @@
  */
 import { useAppStore } from '../store';
 import { ClassificationRow } from './ClassificationRow';
-
-const LABELS: Record<string, string> = {
-  lenke: 'Lenke (AIS)',
-  kingMoe: 'King-Moe',
-  pumc: 'PUMC',
-  srsSchwab: 'SRS-Schwab (adulto)',
-  roussouly: 'Roussouly',
-  ceos: 'C-EOS (inicio precoz)',
-  congenital: 'Congénita (Winter/McMaster)',
-  neuromuscular: 'Neuromuscular (Lonstein-Akbarnia)',
-  lenkeSilva: 'Lenke-Silva (degenerativa del adulto)',
-};
-
-const ORDER = ['lenke', 'kingMoe', 'pumc', 'srsSchwab', 'roussouly', 'ceos', 'congenital', 'neuromuscular', 'lenkeSilva'];
+import { CLASSIFICATION_LABELS, CLASSIFICATION_ORDER } from './classificationDisplayConfig';
 
 export function ClassificationPanel(): JSX.Element | null {
   const measurementSet = useAppStore((s) => s.measurementSet);
   if (!measurementSet) return null;
 
-  const keys = ORDER.filter((key) => measurementSet.classifications[key]);
+  const keys = CLASSIFICATION_ORDER.filter((key) => measurementSet.classifications[key]);
   if (keys.length === 0) return null;
 
   return (
@@ -40,7 +27,7 @@ export function ClassificationPanel(): JSX.Element | null {
         inventa.
       </p>
       {keys.map((key) => (
-        <ClassificationRow key={key} label={LABELS[key]!} classification={measurementSet.classifications[key]!} />
+        <ClassificationRow key={key} label={CLASSIFICATION_LABELS[key]!} classification={measurementSet.classifications[key]!} />
       ))}
     </div>
   );

@@ -8,6 +8,7 @@
  * recalcular y guarda el historial para deshacer.
  */
 import { create } from 'zustand';
+import type Konva from 'konva';
 import type { Pt } from '../core/geometry/types';
 import type { ClinicalContext, Radiograph, SkeletalMaturity, SpinalLevel, VertebraAnnotation } from '../core/models/types';
 import type { Calibration } from '../core/calibration/calibration';
@@ -179,6 +180,15 @@ export interface AppState {
   overlaysVisible: boolean;
   layerVisibility: LayerVisibility;
   helpVisible: boolean;
+
+  /** El `Stage` de Konva activo, registrado por `Viewer.tsx` al montar
+   * (`null` mientras no hay visor). SPEC.md §12, punto 4 ("imagen
+   * anotada"): `ui/Panels/ReportPanel.tsx` lo necesita para capturar un PNG
+   * de la radiografía con overlays al generar el informe — es la única
+   * referencia al DOM/Konva que vive en el store, porque no hay otra forma
+   * de llegar al `Stage` desde un panel que no lo renderiza. */
+  stageRef: Konva.Stage | null;
+  setStageRef: (stage: Konva.Stage | null) => void;
 
   /**
    * Etapas 0–3, 5 y 8 del pipeline automático (SPEC.md §8), ejecutadas sin
@@ -413,6 +423,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   overlaysVisible: true,
   layerVisibility: { landmarks: true, derivedLines: true, labels: true },
   helpVisible: false,
+  stageRef: null,
   autoDetection: null,
   autoDetectionLoading: false,
 
@@ -892,4 +903,5 @@ export const useAppStore = create<AppState>((set, get) => ({
   setWindowLevel: (windowCenter, windowWidth) => set({ windowCenter, windowWidth }),
   toggleInvertGrayscale: () => set((s) => ({ invertGrayscale: !s.invertGrayscale })),
   toggleHelp: () => set((s) => ({ helpVisible: !s.helpVisible })),
+  setStageRef: (stage) => set({ stageRef: stage }),
 }));

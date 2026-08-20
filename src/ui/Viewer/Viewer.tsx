@@ -17,6 +17,7 @@ import { Magnifier } from './Magnifier';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { HelpPanel } from './HelpPanel';
 import { useContainerSize } from './useContainerSize';
+import { computeFitZoomPan } from './fitImage';
 
 const RULER_POINT_COLOR = '#ffe066';
 
@@ -44,6 +45,7 @@ export function Viewer(): JSX.Element {
   const selectLandmark = useAppStore((s) => s.selectLandmark);
   const setCalibrationFromRuler = useAppStore((s) => s.setCalibrationFromRuler);
   const setActiveTool = useAppStore((s) => s.setActiveTool);
+  const setStageRef = useAppStore((s) => s.setStageRef);
 
   const [pointerImagePos, setPointerImagePos] = useState<{ x: number; y: number } | null>(null);
   const [rulerPoints, setRulerPoints] = useState<Pt[]>([]);
@@ -53,6 +55,11 @@ export function Viewer(): JSX.Element {
   }, [activeTool]);
 
   useKeyboardShortcuts();
+
+  useEffect(() => {
+    setStageRef(image ? stageRef.current : null);
+    return () => setStageRef(null);
+  }, [image, setStageRef]);
 
   const fittedImageRef = useRef<typeof image>(null);
   useEffect(() => {
@@ -72,9 +79,9 @@ export function Viewer(): JSX.Element {
     if (fittedImageRef.current === image) return;
     if (size.width === 0 || size.height === 0) return;
 
-    const fitZoom = Math.min(size.width / image.width, size.height / image.height, 1);
-    setZoom(fitZoom > 0 ? fitZoom : 1);
-    setPan({ x: (size.width - image.width * fitZoom) / 2, y: (size.height - image.height * fitZoom) / 2 });
+    const { zoom: fitZoom, pan: fitPan } = computeFitZoomPan(image.width, image.height, size.width, size.height);
+    setZoom(fitZoom);
+    setPan(fitPan);
     fittedImageRef.current = image;
   }, [image, size, setZoom, setPan]);
 

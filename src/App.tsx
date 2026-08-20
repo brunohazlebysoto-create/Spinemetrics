@@ -9,6 +9,7 @@ import { ClinicalContextPanel } from './ui/Panels/ClinicalContextPanel';
 import { FollowUpPanel } from './ui/Panels/FollowUpPanel';
 import { SelfMeasurementPanel } from './ui/Panels/SelfMeasurementPanel';
 import { ResearchPanel } from './ui/Panels/ResearchPanel';
+import { ReportPanel } from './ui/Panels/ReportPanel';
 
 export function App(): JSX.Element {
   return (
@@ -28,6 +29,7 @@ export function App(): JSX.Element {
           <ClinicalContextPanel />
           <FollowUpPanel />
           <ResearchPanel />
+          <ReportPanel />
         </aside>
       </div>
     </div>
