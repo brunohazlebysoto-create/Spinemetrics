@@ -10,6 +10,7 @@ import { AddVertebraControl } from './AddVertebraControl';
 import { SelfMeasurementControl } from './SelfMeasurementControl';
 import { WindowLevelControl } from './WindowLevelControl';
 import { StudyIO } from './StudyIO';
+import { PrivacyControls } from './PrivacyControls';
 import type { RadiographView } from '../core/models/types';
 
 const VIEW_LABELS: Record<RadiographView, string> = {
@@ -123,8 +124,9 @@ export function Toolbar(): JSX.Element {
         </>
       )}
 
-      <div style={{ marginLeft: 'auto' }}>
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
         <StudyIO />
+        <PrivacyControls />
       </div>
     </div>
   );
