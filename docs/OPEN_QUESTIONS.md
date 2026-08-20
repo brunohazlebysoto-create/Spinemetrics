@@ -267,6 +267,18 @@ Qué diferencia se considera aceptable no es lo mismo para cada medida.
 
 ---
 
+## J. PRIVACIDAD Y ALMACENAMIENTO LOCAL
+
+### #49 Almacenamiento local cifrado "si el entorno lo permite"
+SPEC.md §11: "Almacenamiento local cifrado si el entorno lo permite; opción de borrado completo." La opción de borrado completo ya está implementada (`ui/PrivacyControls.tsx`, botón "Borrar todos los datos locales" en la barra de herramientas, llama a `deleteAllStudies`/`deleteAllSelfMeasurementCases`). El cifrado, no.
+- **Decisión explícita (pedida al usuario, no asumida):** no implementar cifrado en esta fase. `storage/db.ts` guarda `Study`/`SelfMeasurementCase` en IndexedDB sin cifrar — protegidos sólo por el sandboxing del navegador/sistema operativo, no por una clave propia de la aplicación.
+- **Por qué no se decidió en silencio:** la condicional "si el entorno lo permite" de SPEC.md esconde una decisión de UX real — de dónde sale la clave — que no tiene un valor por defecto seguro:
+  - Una contraseña por sesión (derivar la clave con Web Crypto, PBKDF2/AES-GCM) protege de verdad, pero añade fricción a cada sesión de trabajo y hace los datos irrecuperables si se olvida.
+  - Una clave generada en el dispositivo sin contraseña (`crypto.subtle.generateKey`, no exportable) es transparente pero, si se guarda en el mismo IndexedDB que cifra, es una protección más simbólica que real frente a alguien con acceso al mismo perfil de navegador — habría que decirlo así de claro en vez de dar una falsa sensación de seguridad.
+- Si se retoma más adelante: cualquiera de las dos opciones cifraría antes de `db.studies.put()`/`db.selfMeasurementCases.put()` y descifraría al leer — el resto de la aplicación (todo lo que ya usa `saveStudy`/`loadStudy`/`listSelfMeasurementCases`, etc.) no necesitaría cambios, porque esas funciones son ya el único punto de paso hacia IndexedDB.
+
+---
+
 ## I. PENDIENTES DE VERIFICAR EN FUENTE PRIMARIA
 
 Estos puntos se implementaron a partir de fuentes secundarias y **deben confirmarse en el artículo original antes de cualquier uso académico**:
