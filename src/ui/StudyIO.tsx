@@ -35,6 +35,11 @@ export function StudyIO(): JSX.Element {
   const setAgeYears = useAppStore((s) => s.setAgeYears);
   const importStudy = useAppStore((s) => s.importStudy);
   const loadPriorStudies = useAppStore((s) => s.loadPriorStudies);
+  const manual = useAppStore((s) => s.manualClassificationInputs);
+  const maturity = useAppStore((s) => s.maturity);
+  const clinical = useAppStore((s) => s.clinical);
+  const setMaturity = useAppStore((s) => s.setMaturity);
+  const setClinical = useAppStore((s) => s.setClinical);
   const [status, setStatus] = useState<string | null>(null);
 
   /** SPEC.md §5: un `Study` puede tener varias radiografías (bending,
@@ -58,6 +63,18 @@ export function StudyIO(): JSX.Element {
       ageYears,
       radiographs: allRadiographs,
       measurementSets: [measurementSet, ...otherMeasurementSets],
+      maturity,
+      // SPEC.md §5 `ClinicalContext.etiology`/`gmfcs` ya se capturan en
+      // `manualClassificationInputs` (fuente única de verdad para lo que
+      // alimenta la clasificación, SPEC.md §9) — se reutilizan aquí en vez
+      // de pedirlos otra vez en un formulario aparte que podría desincronizarse.
+      // `exactOptionalPropertyTypes` prohíbe una clave presente con valor
+      // `undefined`, así que sólo se añaden si hay un valor real.
+      clinical: {
+        ...clinical,
+        ...(manual.etiology !== null ? { etiology: manual.etiology } : {}),
+        ...(manual.neuromuscularGmfcs !== null ? { gmfcs: manual.neuromuscularGmfcs } : {}),
+      },
     };
   }
 
@@ -86,6 +103,27 @@ export function StudyIO(): JSX.Element {
     setStudyDate(study.date);
     setAgeYears(study.ageYears);
     if (study.radiographs.length > 0) importStudy(study.radiographs);
+    // Reemplazo completo, no fusión: un JSON sin `maturity`/`clinical` debe
+    // borrar lo que hubiera de una sesión anterior, no conservarlo mezclado
+    // con datos de otro estudio (SPEC.md §12: "el JSON debe bastar para
+    // reconstruir todas las anotaciones"). `setMaturity`/`setClinical`
+    // fusionan por clave, así que se listan todas explícitamente a
+    // `undefined` antes de aplicar lo que traiga el archivo.
+    setMaturity({
+      risser: undefined,
+      risserSystem: undefined,
+      sanders: undefined,
+      triradiateOpen: undefined,
+      boneAgeYears: undefined,
+      ...study.maturity,
+    });
+    setClinical({
+      etiology: undefined,
+      gmfcs: undefined,
+      scoliometerATR: undefined,
+      instrumented: undefined,
+      ...study.clinical,
+    });
     setStatus(
       study.radiographs.length > 1
         ? `Importado (${study.radiographs.length} radiografías). Vuelve a cargar la imagen original de cada una si quieres verlas en el visor.`

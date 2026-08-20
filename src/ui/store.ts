@@ -9,7 +9,7 @@
  */
 import { create } from 'zustand';
 import type { Pt } from '../core/geometry/types';
-import type { Radiograph, SpinalLevel, VertebraAnnotation } from '../core/models/types';
+import type { ClinicalContext, Radiograph, SkeletalMaturity, SpinalLevel, VertebraAnnotation } from '../core/models/types';
 import type { Calibration } from '../core/calibration/calibration';
 import { calibrationFromRuler } from '../core/calibration/calibration';
 import { recomputeMeasurementSet, type RecomputeOptions } from './measurementEngine';
@@ -26,6 +26,22 @@ import type { PipelineResult } from '../pipeline/runPipeline';
 import { runPipelineInWorker } from '../pipeline/workerClient';
 import { listStudiesForPatient, saveSelfMeasurementCase, type StoredStudy } from '../storage/db';
 import { inheritedCobbTerminals, paStandingMeasurementSet } from './followUp';
+
+/** `exactOptionalPropertyTypes` distingue "clave ausente" de "clave con
+ * valor `undefined`": los tipos de dominio (`SkeletalMaturity`,
+ * `ClinicalContext`) sólo aceptan lo primero. `setMaturity`/`setClinical`
+ * necesitan poder recibir `undefined` explícito por campo (para borrar un
+ * valor concreto en un parche parcial, sobre todo al reemplazar por
+ * completo desde un JSON importado) sin dejar esa clave `undefined` en el
+ * estado — esta función limpia el resultado del merge antes de guardarlo. */
+function omitUndefinedValues<T extends object>(value: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  const out: { [K in keyof T]?: Exclude<T[K], undefined> } = {};
+  for (const key of Object.keys(value) as (keyof T)[]) {
+    const v = value[key];
+    if (v !== undefined) out[key] = v as Exclude<T[typeof key], undefined>;
+  }
+  return out;
+}
 
 export type ToolMode = 'select' | 'addVertebra' | 'ruler';
 
@@ -100,6 +116,21 @@ export interface AppState {
    * `Study` (`patientRef`, `studyDate`, `ageYears`), no se reinician al
    * cargar una imagen nueva sobre la misma sesión. */
   manualClassificationInputs: ManualClassificationInputs;
+
+  /** SPEC.md §7.11/§12: Risser (con su sistema obligatorio, `docs/OPEN_QUESTIONS.md`
+   * #32), Sanders (§33) y cartílago trirradiado. Igual que
+   * `manualClassificationInputs`, persiste como metadato del `Study` en
+   * curso — no se reinicia al cargar una imagen nueva sobre la misma
+   * sesión, y viaja con el JSON exportado/importado (`Study.maturity`). */
+  maturity: SkeletalMaturity;
+  /** SPEC.md §5 `Study.clinical`: campos que no derivan de landmarks ni se
+   * capturan ya en `manualClassificationInputs` (etiología/GMFCS, que
+   * `StudyIO.tsx::buildStudy` reutiliza desde ahí para no duplicar la
+   * fuente de verdad). `scoliometerATR` es informativo (`docs/OPEN_QUESTIONS.md`
+   * #34: mostrar los dos umbrales, nunca elegir uno en silencio);
+   * `instrumented` alimenta también el criterio de exclusión de "caso
+   * válido" del estudio de concordancia (#38). */
+  clinical: ClinicalContext;
 
   /** SPEC.md §10.4 "Seguimiento seriado": estudios previos guardados del
    * mismo `patientRef` (más recientes primero), y cuál de ellos actúa como
@@ -197,6 +228,16 @@ export interface AppState {
    * de ediciones en vivo (§10.2), sólo que sobre entradas clínicas en vez
    * de landmarks. */
   setManualClassificationInputs: (patch: Partial<ManualClassificationInputs>) => void;
+  /** SPEC.md §7.11: parche parcial sobre `maturity`, mismo patrón que
+   * `setManualClassificationInputs`. No recalcula ningún `MeasurementSet`
+   * ni clasificación — son campos descriptivos del `Study`, no landmarks.
+   * El patch admite `undefined` explícito por campo (a diferencia de
+   * `Partial<T>` bajo `exactOptionalPropertyTypes`) para poder borrar un
+   * valor concreto, no sólo dejarlo intacto por omisión — lo usa
+   * `StudyIO.tsx::handleImport` para reemplazar por completo en vez de
+   * fusionar con lo que hubiera de una sesión anterior. */
+  setMaturity: (patch: { [K in keyof SkeletalMaturity]?: SkeletalMaturity[K] | undefined }) => void;
+  setClinical: (patch: { [K in keyof ClinicalContext]?: ClinicalContext[K] | undefined }) => void;
 
   /** SPEC.md §10.4: consulta los estudios guardados con el mismo
    * `patientRef` (más recientes primero) y los deja en `priorStudies`. No
@@ -344,6 +385,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   history: [],
   otherRadiographs: [],
   manualClassificationInputs: DEFAULT_MANUAL_CLASSIFICATION_INPUTS,
+  maturity: {},
+  clinical: {},
   priorStudies: [],
   selectedIndexStudyId: null,
   selfMeasurementActive: false,
@@ -524,6 +567,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ ageYears });
     set({ measurementSet: recompute(get().radiograph, recomputeContext(get)) });
   },
+  setMaturity: (patch) => {
+    set((s) => ({ maturity: omitUndefinedValues({ ...s.maturity, ...patch }) }));
+  },
+
+  setClinical: (patch) => {
+    set((s) => ({ clinical: omitUndefinedValues({ ...s.clinical, ...patch }) }));
+  },
+
   setManualClassificationInputs: (patch) => {
     set((s) => ({ manualClassificationInputs: { ...s.manualClassificationInputs, ...patch } }));
     set({ measurementSet: recompute(get().radiograph, recomputeContext(get)) });
@@ -806,6 +857,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       own: selfMeasurement.measurementSet,
       automatic: measurementSet,
       unblinded: selfMeasurementUnblinded,
+      // docs/OPEN_QUESTIONS.md #38: los otros dos criterios de exclusión de
+      // "caso válido" ya implementables sin datos nuevos — instrumentado se
+      // copia de `clinical` (SPEC.md §5 `ClinicalContext`), el recuento de
+      // vértebras del propio trazado que se acaba de terminar.
+      instrumented: get().clinical.instrumented ?? false,
+      identifiableVertebraeCount: selfMeasurement.radiograph.annotations.vertebrae.length,
     });
   },
 

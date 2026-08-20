@@ -33,6 +33,16 @@ export interface SelfMeasurementCase {
    * independencia de la comparación. `ui/researchStats.ts`/`ResearchPanel`
    * excluyen por defecto estos casos de la estadística agregada. */
   unblinded: boolean;
+  /** `docs/OPEN_QUESTIONS.md` #38: columna previamente instrumentada, copiado
+   * de `Study.clinical.instrumented` en el momento de terminar la medición
+   * propia — otro criterio de exclusión de "caso válido" para la
+   * estadística de concordancia. */
+  instrumented: boolean;
+  /** `docs/OPEN_QUESTIONS.md` #38: número de vértebras anotadas en el
+   * trazado propio (`selfMeasurement.radiograph.annotations.vertebrae.length`)
+   * — el mínimo de `DEFAULT_CONVENTIONS.concordance.minIdentifiableVertebrae`
+   * (12) es el tercer criterio de exclusión. */
+  identifiableVertebraeCount: number;
 }
 
 class SpineMetricsDatabase extends Dexie {

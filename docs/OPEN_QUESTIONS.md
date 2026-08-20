@@ -246,7 +246,7 @@ Los tornillos y barras ocultan platillos y falsean tanto la detección automáti
 ### #38 ★★ Qué cuenta como "caso válido" para comparar automático vs manual
 - **Por defecto:** se excluyen del análisis estadístico los casos con `instrumented: true`, `unblinded: true` (ver #39), calibración ausente cuando se comparan distancias, o menos de 12 vértebras identificables.
 - Los criterios de exclusión deben fijarse **antes** de empezar a medir, no después de ver los resultados.
-- **Implementado parcialmente:** `ResearchPanel.tsx` sólo aplica la exclusión por `unblinded` (ver #39). `instrumented`, calibración ausente y el mínimo de 12 vértebras identificables **no** se filtran todavía — `SelfMeasurementCase` (`storage/db.ts`) no guarda esos tres datos por caso. Pendiente: añadirlos al caso guardado (o derivarlos del `MeasurementSet`/`Study.clinical` correspondiente) y filtrar por ellos aquí también.
+- **Implementado parcialmente:** `ResearchPanel.tsx` aplica la exclusión por `unblinded` (#39), `instrumented` (copiado de `Study.clinical.instrumented`, capturado en `ui/Panels/ClinicalContextPanel.tsx`, al terminar la medición propia) y el mínimo de `DEFAULT_CONVENTIONS.concordance.minIdentifiableVertebrae` (12) vértebras identificables en el trazado propio — los tres se guardan por caso en `SelfMeasurementCase` (`storage/db.ts`) y el panel muestra cuántos casos excluye cada criterio, nunca en silencio. Pendiente: **calibración ausente cuando se comparan distancias** — `SelfMeasurementCase` no guarda si la calibración estaba presente, y el filtro actual es uniforme para todas las mediciones (no distingue ángulos de distancias, que son las que este criterio afecta).
 
 ### #39 ★★ Integridad del cegamiento
 Si el resultado automático se consulta antes de terminar la medición manual, la comparación deja de ser independiente.
@@ -272,5 +272,6 @@ Estos puntos se implementaron a partir de fuentes secundarias y **deben confirma
 6. Umbrales pediátricos normativos de incidencia pélvica por edad.
 7. Valores numéricos exactos de la tabla ratio (d/w) → grados del torsiómetro de Perdriolle (ver #41): la implementación actual usa una tabla aproximada de anclaje, no los valores impresos en el instrumento físico original.
 8. Definición de C en el modificador lumbar de Lenke (ver #43): se implementó la definición estándar de la literatura en vez de la redacción literal de SPEC.md §9.1, que parece contener un error de transcripción.
+9. Criterios de osificación exactos de cada estadio de Sanders (SSMS) 1–8 (`ui/Panels/MaturityPanel.tsx`): la guía visual integrada de la interfaz sólo describe el gradiente general (menos→más maduro), sin los porcentajes de osificación epifisaria por estadio del artículo original (Sanders 2008, referencia #16 en `docs/REFERENCES.md`) — evitar transcribir esos umbrales de memoria antes de confirmarlos en la fuente.
 
 **Referencia canónica recomendada para resolver la mayoría de las definiciones de landmarks:** *Spinal Deformity Study Group Radiographic Measurement Manual* (O'Brien, Kuklo, Blanke, Lenke), de acceso abierto en srs.org. Cuando este manual y una fuente secundaria discrepen, **gana el manual**.

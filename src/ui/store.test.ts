@@ -447,6 +447,52 @@ describe('entradas manuales de clasificación (SPEC.md §9.5–§9.7, §9.9)', (
   });
 });
 
+describe('madurez esquelética y contexto clínico (SPEC.md §7.11, §5)', () => {
+  it('setMaturity aplica un parche parcial sin tocar los campos no mencionados', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([]));
+    useAppStore.getState().setMaturity({ sanders: 4 });
+    useAppStore.getState().setMaturity({ risserSystem: 'US' });
+    useAppStore.getState().setMaturity({ risser: 2 });
+
+    const maturity = useAppStore.getState().maturity;
+    expect(maturity.sanders).toBe(4);
+    expect(maturity.risserSystem).toBe('US');
+    expect(maturity.risser).toBe(2);
+  });
+
+  it('borrar el sistema de Risser (docs/OPEN_QUESTIONS.md #32) también borra el grado: no puede quedar huérfano', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([]));
+    useAppStore.getState().setMaturity({ risserSystem: 'FR', risser: 3 });
+    expect(useAppStore.getState().maturity.risser).toBe(3);
+
+    useAppStore.getState().setMaturity({ risserSystem: undefined, risser: undefined });
+    const maturity = useAppStore.getState().maturity;
+    expect(maturity.risserSystem).toBeUndefined();
+    expect(maturity.risser).toBeUndefined();
+    expect('risser' in maturity).toBe(false); // nunca una clave `undefined` explícita en el estado.
+  });
+
+  it('setClinical aplica un parche parcial (scoliometerATR, instrumented)', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([]));
+    useAppStore.getState().setClinical({ scoliometerATR: 8 });
+    useAppStore.getState().setClinical({ instrumented: true });
+
+    const clinical = useAppStore.getState().clinical;
+    expect(clinical.scoliometerATR).toBe(8);
+    expect(clinical.instrumented).toBe(true);
+  });
+
+  it('maturity y clinical persisten al cargar una imagen nueva sobre la misma sesión, igual que manualClassificationInputs', () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([]));
+    useAppStore.getState().setMaturity({ sanders: 6 });
+    useAppStore.getState().setClinical({ instrumented: true });
+
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([]));
+    expect(useAppStore.getState().maturity.sanders).toBe(6);
+    expect(useAppStore.getState().clinical.instrumented).toBe(true);
+  });
+});
+
 describe('seguimiento seriado (SPEC.md §10.4)', () => {
   function curveT5T12(): VertebraAnnotation[] {
     return [makeVertebra('T5', 0, 20), makeVertebra('T12', 200, -20)];
@@ -653,6 +699,19 @@ describe('"Medir yo también" (SPEC.md §10.5)', () => {
 
     const cases = await listSelfMeasurementCases();
     expect(cases[0]!.unblinded).toBe(false);
+  });
+
+  it('el caso guardado copia clinical.instrumented y cuenta las vértebras identificables del trazado propio (docs/OPEN_QUESTIONS.md #38)', async () => {
+    useAppStore.getState().loadImage(makeImage(), makeRadiograph([makeVertebra('T5', 0, 10), makeVertebra('T12', 200, -15)]));
+    useAppStore.getState().setClinical({ instrumented: true });
+    useAppStore.getState().startSelfMeasurement();
+    placeVertebra('T5', [[180, 0], [220, 4], [180, 30], [220, 30]]);
+    placeVertebra('T12', [[180, 200], [220, 196], [180, 230], [220, 230]]);
+    await useAppStore.getState().finishSelfMeasurement();
+
+    const cases = await listSelfMeasurementCases();
+    expect(cases[0]!.instrumented).toBe(true);
+    expect(cases[0]!.identifiableVertebraeCount).toBe(2);
   });
 
   it('startSelfMeasurement reinicia selfMeasurementUnblinded para el siguiente intento', () => {

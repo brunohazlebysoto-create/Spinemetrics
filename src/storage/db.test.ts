@@ -45,6 +45,8 @@ function makeSelfMeasurementCase(overrides: Partial<SelfMeasurementCase> = {}): 
     own: makeMeasurementSet(30),
     automatic: makeMeasurementSet(28),
     unblinded: false,
+    instrumented: false,
+    identifiableVertebraeCount: 12,
     ...overrides,
   };
 }

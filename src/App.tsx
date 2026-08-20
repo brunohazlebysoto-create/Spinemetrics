@@ -4,6 +4,8 @@ import { MeasurementsPanel } from './ui/Panels/MeasurementsPanel';
 import { AutoDetectionPanel } from './ui/Panels/AutoDetectionPanel';
 import { ClassificationPanel } from './ui/Panels/ClassificationPanel';
 import { ManualClassificationPanel } from './ui/Panels/ManualClassificationPanel';
+import { MaturityPanel } from './ui/Panels/MaturityPanel';
+import { ClinicalContextPanel } from './ui/Panels/ClinicalContextPanel';
 import { FollowUpPanel } from './ui/Panels/FollowUpPanel';
 import { SelfMeasurementPanel } from './ui/Panels/SelfMeasurementPanel';
 import { ResearchPanel } from './ui/Panels/ResearchPanel';
@@ -22,6 +24,8 @@ export function App(): JSX.Element {
           <SelfMeasurementPanel />
           <ClassificationPanel />
           <ManualClassificationPanel />
+          <MaturityPanel />
+          <ClinicalContextPanel />
           <FollowUpPanel />
           <ResearchPanel />
         </aside>

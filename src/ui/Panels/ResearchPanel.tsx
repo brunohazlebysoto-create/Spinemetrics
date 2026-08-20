@@ -11,6 +11,9 @@ import { listSelfMeasurementCases, type SelfMeasurementCase } from '../../storag
 import { computeBlandAltman, computeCohenKappa, computeIcc, type NumericPair } from '../researchStats';
 import { MEASUREMENT_DISPLAY_CONFIG } from './measurementDisplayConfig';
 import { UNIT_SUFFIX } from './formatMeasurement';
+import { DEFAULT_CONVENTIONS } from '../../core/config/conventions';
+
+const MIN_IDENTIFIABLE_VERTEBRAE = DEFAULT_CONVENTIONS.concordance.minIdentifiableVertebrae;
 
 function round1(value: number): number {
   return Math.round(value * 10) / 10;
@@ -71,15 +74,22 @@ export function ResearchPanel(): JSX.Element {
       )}
 
       {cases !== null && cases.length > 0 && (() => {
-        // `docs/OPEN_QUESTIONS.md` #38–#39: los casos donde se consultó el
-        // automático antes de terminar (`unblinded`) no son independientes
-        // — se excluyen de la estadística "publicable" por defecto, sin
-        // dejar de contarlos (nunca se ocultan en silencio).
+        // `docs/OPEN_QUESTIONS.md` #38–#39: tres criterios de exclusión de
+        // "caso válido" para la estadística "publicable" — cegamiento roto
+        // (#39), columna instrumentada, y menos del mínimo de vértebras
+        // identificables (ambos #38). Ninguno oculta el caso de la
+        // comparación individual (`SelfMeasurementPanel.tsx`), sólo de este
+        // agregado, y cada exclusión se cuenta, nunca se descarta en
+        // silencio. El cuarto criterio de #38 (calibración ausente al
+        // comparar distancias) sigue sin implementarse — ver la nota allí.
         const blindedCases = cases.filter((c) => !c.unblinded);
+        const validCases = blindedCases.filter((c) => !c.instrumented && c.identifiableVertebraeCount >= MIN_IDENTIFIABLE_VERTEBRAE);
         const unblindedCount = cases.length - blindedCases.length;
+        const instrumentedCount = blindedCases.filter((c) => c.instrumented).length;
+        const tooFewVertebraeCount = blindedCases.filter((c) => !c.instrumented && c.identifiableVertebraeCount < MIN_IDENTIFIABLE_VERTEBRAE).length;
 
         const rows = MEASUREMENT_DISPLAY_CONFIG.map((config) => {
-          const pairs = extractPairs(blindedCases, config.key);
+          const pairs = extractPairs(validCases, config.key);
           const ba = computeBlandAltman(pairs);
           if (!ba) return null;
           const icc = computeIcc(pairs);
@@ -87,12 +97,14 @@ export function ResearchPanel(): JSX.Element {
           return { key: config.key, label: config.label, ba, icc, suffix };
         }).filter((r): r is NonNullable<typeof r> => r !== null);
 
-        const kappa = computeCohenKappa(extractLenkeCurveTypePairs(blindedCases));
+        const kappa = computeCohenKappa(extractLenkeCurveTypePairs(validCases));
 
-        const unblindedNote = unblindedCount > 0 && (
+        const exclusionNote = (unblindedCount > 0 || instrumentedCount > 0 || tooFewVertebraeCount > 0) && (
           <p style={{ margin: '4px 0 0', fontSize: 12, color: '#fbbf24' }}>
-            {unblindedCount} caso{unblindedCount === 1 ? '' : 's'} excluido{unblindedCount === 1 ? '' : 's'} de esta estadística: se
-            consultó el automático antes de terminar la medición propia (docs/OPEN_QUESTIONS.md #39).
+            Excluidos de esta estadística (docs/OPEN_QUESTIONS.md #38–#39, criterios fijados de antemano, no tras ver el resultado):
+            {unblindedCount > 0 && ` ${unblindedCount} por consultar el automático antes de terminar la medición propia;`}
+            {instrumentedCount > 0 && ` ${instrumentedCount} con columna instrumentada;`}
+            {tooFewVertebraeCount > 0 && ` ${tooFewVertebraeCount} con menos de ${MIN_IDENTIFIABLE_VERTEBRAE} vértebras identificables;`}
           </p>
         );
 
@@ -100,11 +112,11 @@ export function ResearchPanel(): JSX.Element {
           return (
             <>
               <p style={{ margin: '8px 0 0', fontSize: 12, color: '#8a8f98' }}>
-                {blindedCases.length} caso{blindedCases.length === 1 ? '' : 's'} cegado{blindedCases.length === 1 ? '' : 's'} guardado
-                {blindedCases.length === 1 ? '' : 's'} — hacen falta al menos 2 con la misma medición calculable en ambos lados para
+                {validCases.length} caso{validCases.length === 1 ? '' : 's'} válido{validCases.length === 1 ? '' : 's'} guardado
+                {validCases.length === 1 ? '' : 's'} — hacen falta al menos 2 con la misma medición calculable en ambos lados para
                 estimar Bland-Altman/ICC.
               </p>
-              {unblindedNote}
+              {exclusionNote}
             </>
           );
         }
@@ -141,7 +153,7 @@ export function ResearchPanel(): JSX.Element {
             <p style={{ margin: '8px 0 0', fontSize: 12, color: '#8a8f98' }}>
               Kappa (tipo de curva de Lenke): {kappa ? `${kappa.kappa.toFixed(2)} (n=${kappa.n})` : 'sin suficientes casos comparables'}.
             </p>
-            {unblindedNote}
+            {exclusionNote}
           </>
         );
       })()}
